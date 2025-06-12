@@ -1,0 +1,1 @@
+{"DATABASE": "test.db", "SECRET_KEY": "test_key", "BROKER": "test_broker", "SYMBOL": "BTC/USDT", "MOCK_MODE": true}

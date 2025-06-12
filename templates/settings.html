@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Scalping Bot{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <h2>Settings</h2>
+    
+    <!-- API Configuration -->
+    <section class="settings-section">
+        <h3>API Configuration</h3>
+        <form id="api-form" class="settings-form">
+            <div class="form-group">
+                <label for="api_key">API Key</label>
+                <input type="password" id="api_key" name="api_key" value="{{ current_user.api_key or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="api_secret">API Secret</label>
+                <input type="password" id="api_secret" name="api_secret" value="{{ current_user.api_secret or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="exchange">Exchange</label>
+                <select id="exchange" name="exchange">
+                    <option value="binance">Binance</option>
+                    <option value="kucoin">KuCoin</option>
+                    <option value="bybit">Bybit</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Save API Settings</button>
+        </form>
+    </section>
+
+    <!-- Strategy Settings -->
+    <section class="settings-section">
+        <h3>Strategy Settings</h3>
+        <form id="strategy-form" class="settings-form">
+            <div class="form-group">
+                <label for="strategy">Trading Strategy</label>
+                <select id="strategy" name="strategy">
+                    <option value="scalping">Scalping</option>
+                    <option value="momentum">Momentum</option>
+                    <option value="mean_reversion">Mean Reversion</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="timeframe">Timeframe</label>
+                <select id="timeframe" name="timeframe">
+                    <option value="1m">1 Minute</option>
+                    <option value="5m">5 Minutes</option>
+                    <option value="15m">15 Minutes</option>
+                    <option value="1h">1 Hour</option>
+                    <option value="4h">4 Hours</option>
+                    <option value="1d">1 Day</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="symbols">Trading Pairs</label>
+                <input type="text" id="symbols" name="symbols" placeholder="BTC/USDT,ETH/USDT">
+                <small class="form-text">Comma-separated list of trading pairs</small>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Strategy Settings</button>
+        </form>
+    </section>
+
+    <!-- Risk Management -->
+    <section class="settings-section">
+        <h3>Risk Management</h3>
+        <form id="risk-form" class="settings-form">
+            <div class="form-group">
+                <label for="max_position_size">Maximum Position Size (%)</label>
+                <input type="number" id="max_position_size" name="max_position_size" min="1" max="100" value="10">
+            </div>
+            <div class="form-group">
+                <label for="stop_loss">Stop Loss (%)</label>
+                <input type="number" id="stop_loss" name="stop_loss" min="0.1" max="100" step="0.1" value="2">
+            </div>
+            <div class="form-group">
+                <label for="take_profit">Take Profit (%)</label>
+                <input type="number" id="take_profit" name="take_profit" min="0.1" max="100" step="0.1" value="4">
+            </div>
+            <div class="form-group">
+                <label for="max_daily_trades">Maximum Daily Trades</label>
+                <input type="number" id="max_daily_trades" name="max_daily_trades" min="1" value="10">
+            </div>
+            <div class="form-group">
+                <label for="max_daily_loss">Maximum Daily Loss (%)</label>
+                <input type="number" id="max_daily_loss" name="max_daily_loss" min="0.1" max="100" step="0.1" value="5">
+            </div>
+            <button type="submit" class="btn btn-primary">Save Risk Settings</button>
+        </form>
+    </section>
+
+    <!-- Notifications -->
+    <section class="settings-section">
+        <h3>Notifications</h3>
+        <form id="notification-form" class="settings-form">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="email_notifications" checked> Email Notifications
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="trade_notifications" checked> Trade Notifications
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="error_notifications" checked> Error Notifications
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="daily_report" checked> Daily Performance Report
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Notification Settings</button>
+        </form>
+    </section>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // API Form Handler
+    document.getElementById('api-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        try {
+            const response = await fetch('/api/settings/api', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                showNotification('Success', 'API settings saved successfully', 'success');
+            } else {
+                throw new Error('Failed to save API settings');
+            }
+        } catch (error) {
+            showNotification('Error', error.message, 'error');
+        }
+    });
+
+    // Strategy Form Handler
+    document.getElementById('strategy-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        try {
+            const response = await fetch('/api/settings/strategy', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                showNotification('Success', 'Strategy settings saved successfully', 'success');
+            } else {
+                throw new Error('Failed to save strategy settings');
+            }
+        } catch (error) {
+            showNotification('Error', error.message, 'error');
+        }
+    });
+
+    // Risk Form Handler
+    document.getElementById('risk-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        try {
+            const response = await fetch('/api/settings/risk', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                showNotification('Success', 'Risk settings saved successfully', 'success');
+            } else {
+                throw new Error('Failed to save risk settings');
+            }
+        } catch (error) {
+            showNotification('Error', error.message, 'error');
+        }
+    });
+
+    // Notification Form Handler
+    document.getElementById('notification-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        try {
+            const response = await fetch('/api/settings/notifications', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                showNotification('Success', 'Notification settings saved successfully', 'success');
+            } else {
+                throw new Error('Failed to save notification settings');
+            }
+        } catch (error) {
+            showNotification('Error', error.message, 'error');
+        }
+    });
+});
+</script>
+{% endblock %}

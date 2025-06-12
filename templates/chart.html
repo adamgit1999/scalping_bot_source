@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Chart{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chart-container {
+        height: 600px;
+        width: 100%;
+    }
+    .indicator-controls {
+        margin-bottom: 1rem;
+    }
+    .trade-controls {
+        margin-top: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Chart Controls -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Chart Controls</h5>
+            </div>
+            <div class="card-body">
+                <!-- Timeframe Selection -->
+                <div class="mb-3">
+                    <label class="form-label">Timeframe</label>
+                    <select class="form-select" id="timeframe">
+                        <option value="1m">1 Minute</option>
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m">15 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                        <option value="4h">4 Hours</option>
+                        <option value="1d">1 Day</option>
+                    </select>
+                </div>
+
+                <!-- Symbol Selection -->
+                <div class="mb-3">
+                    <label class="form-label">Symbol</label>
+                    <select class="form-select" id="symbol">
+                        <option value="BTC/USDT">BTC/USDT</option>
+                        <option value="ETH/USDT">ETH/USDT</option>
+                        <option value="BNB/USDT">BNB/USDT</option>
+                    </select>
+                </div>
+
+                <!-- Indicator Controls -->
+                <div class="indicator-controls">
+                    <h6>Indicators</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showRSI">
+                        <label class="form-check-label" for="showRSI">RSI</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showMACD">
+                        <label class="form-check-label" for="showMACD">MACD</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showBB">
+                        <label class="form-check-label" for="showBB">Bollinger Bands</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showVWAP">
+                        <label class="form-check-label" for="showVWAP">VWAP</label>
+                    </div>
+                </div>
+
+                <!-- Trading Controls -->
+                <div class="trade-controls">
+                    <h6>Trading Controls</h6>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" id="startBot">Start Bot</button>
+                        <button class="btn btn-danger" id="stopBot">Stop Bot</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Chart -->
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-body">
+                <div id="tradingChart" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Initialize chart
+    const chart = new ChartHandler('tradingChart');
+    
+    // Socket connection
+    const socket = io();
+    
+    // Handle real-time updates
+    socket.on('price_update', function(data) {
+        chart.updatePrice(data);
+    });
+    
+    socket.on('trade_executed', function(data) {
+        chart.addTradeMarker(data);
+    });
+    
+    // Control event listeners
+    document.getElementById('timeframe').addEventListener('change', function(e) {
+        chart.setTimeframe(e.target.value);
+    });
+    
+    document.getElementById('symbol').addEventListener('change', function(e) {
+        chart.setSymbol(e.target.value);
+    });
+    
+    // Indicator toggles
+    document.getElementById('showRSI').addEventListener('change', function(e) {
+        chart.toggleIndicator('RSI', e.target.checked);
+    });
+    
+    document.getElementById('showMACD').addEventListener('change', function(e) {
+        chart.toggleIndicator('MACD', e.target.checked);
+    });
+    
+    document.getElementById('showBB').addEventListener('change', function(e) {
+        chart.toggleIndicator('BB', e.target.checked);
+    });
+    
+    document.getElementById('showVWAP').addEventListener('change', function(e) {
+        chart.toggleIndicator('VWAP', e.target.checked);
+    });
+    
+    // Bot controls
+    document.getElementById('startBot').addEventListener('click', function() {
+        fetch('/api/start', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    this.disabled = true;
+                    document.getElementById('stopBot').disabled = false;
+                }
+            });
+    });
+    
+    document.getElementById('stopBot').addEventListener('click', function() {
+        fetch('/api/stop', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'stopped') {
+                    this.disabled = true;
+                    document.getElementById('startBot').disabled = false;
+                }
+            });
+    });
+    
+    // Initial chart load
+    chart.initialize();
+</script>
+{% endblock %}

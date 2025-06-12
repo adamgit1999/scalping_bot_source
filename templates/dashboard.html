@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Scalping Bot{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Trading Chart Section -->
+    <div class="chart-section">
+        <div class="chart-header">
+            <h2>Trading Chart</h2>
+            <div class="chart-controls">
+                <select id="timeframe" class="form-input">
+                    <option value="1m">1 Minute</option>
+                    <option value="5m">5 Minutes</option>
+                    <option value="15m">15 Minutes</option>
+                    <option value="1h">1 Hour</option>
+                    <option value="4h">4 Hours</option>
+                    <option value="1d">1 Day</option>
+                </select>
+                <select id="symbol" class="form-input">
+                    <option value="BTC/USDT">BTC/USDT</option>
+                    <option value="ETH/USDT">ETH/USDT</option>
+                    <option value="BNB/USDT">BNB/USDT</option>
+                </select>
+                <button id="refresh-chart" class="btn btn-secondary">Refresh</button>
+            </div>
+        </div>
+        <div id="trading-chart" class="chart-container"></div>
+    </div>
+
+    <!-- Trading Controls -->
+    <div class="trading-controls">
+        <div class="control-group">
+            <h3>Trading Controls</h3>
+            <div class="button-group">
+                <button id="start-trading" class="btn btn-success">Start Trading</button>
+                <button id="stop-trading" class="btn btn-danger">Stop Trading</button>
+                <button id="emergency-stop" class="btn btn-warning">Emergency Stop</button>
+            </div>
+        </div>
+        <div class="control-group">
+            <h3>Bot Status</h3>
+            <div class="status-indicators">
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span id="bot-status" class="status-value">Stopped</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Mode:</span>
+                    <span id="trading-mode" class="status-value">Paper Trading</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Last Update:</span>
+                    <span id="last-update" class="status-value">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Metrics -->
+    <div class="metrics-section">
+        <div class="metric-card">
+            <h3>Today's Performance</h3>
+            <div class="metric-value" id="today-profit">$0.00</div>
+            <div class="metric-change" id="today-change">0.00%</div>
+        </div>
+        <div class="metric-card">
+            <h3>Total Profit</h3>
+            <div class="metric-value" id="total-profit">$0.00</div>
+            <div class="metric-change" id="total-change">0.00%</div>
+        </div>
+        <div class="metric-card">
+            <h3>Win Rate</h3>
+            <div class="metric-value" id="win-rate">0%</div>
+            <div class="metric-subtext">Last 100 trades</div>
+        </div>
+        <div class="metric-card">
+            <h3>Active Trades</h3>
+            <div class="metric-value" id="active-trades">0</div>
+            <div class="metric-subtext">Open positions</div>
+        </div>
+    </div>
+
+    <!-- Active Trades Table -->
+    <div class="trades-section">
+        <h3>Active Trades</h3>
+        <div class="table-container">
+            <table class="trades-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Type</th>
+                        <th>Entry Price</th>
+                        <th>Current Price</th>
+                        <th>P/L</th>
+                        <th>P/L %</th>
+                        <th>Time</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="active-trades-body">
+                    <!-- Trades will be populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Recent Trades Table -->
+    <div class="trades-section">
+        <h3>Recent Trades</h3>
+        <div class="table-container">
+            <table class="trades-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Type</th>
+                        <th>Entry Price</th>
+                        <th>Exit Price</th>
+                        <th>P/L</th>
+                        <th>P/L %</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-trades-body">
+                    <!-- Trades will be populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+.dashboard-container {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.chart-section {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: var(--card-shadow);
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.chart-controls {
+    display: flex;
+    gap: 1rem;
+}
+
+.chart-container {
+    height: 500px;
+    width: 100%;
+}
+
+.trading-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.control-group {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: var(--card-shadow);
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.status-indicators {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.status-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.metrics-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.metric-card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: var(--card-shadow);
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: 0.5rem 0;
+}
+
+.metric-change {
+    font-size: 0.9rem;
+}
+
+.metric-change.positive {
+    color: var(--success-color);
+}
+
+.metric-change.negative {
+    color: var(--danger-color);
+}
+
+.metric-subtext {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.trades-section {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: var(--card-shadow);
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.trades-table th,
+.trades-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trades-table th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .chart-controls {
+        flex-direction: column;
+    }
+
+    .chart-container {
+        height: 300px;
+    }
+
+    .trading-controls {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script>
+// Initialize WebSocket connection
+const socket = io();
+
+// Chart initialization
+let chart = null;
+
+function initializeChart() {
+    const chartDiv = document.getElementById('trading-chart');
+    chart = new Plotly.Chart(chartDiv, {
+        layout: {
+            title: 'Trading Chart',
+            xaxis: { title: 'Time' },
+            yaxis: { title: 'Price' }
+        }
+    });
+}
+
+// Update chart data
+function updateChart(data) {
+    if (!chart) return;
+    
+    Plotly.update('trading-chart', {
+        x: [data.timestamps],
+        y: [data.prices]
+    });
+}
+
+// Update metrics
+function updateMetrics(data) {
+    document.getElementById('today-profit').textContent = formatCurrency(data.todayProfit);
+    document.getElementById('today-change').textContent = formatPercentage(data.todayChange);
+    document.getElementById('total-profit').textContent = formatCurrency(data.totalProfit);
+    document.getElementById('total-change').textContent = formatPercentage(data.totalChange);
+    document.getElementById('win-rate').textContent = formatPercentage(data.winRate);
+    document.getElementById('active-trades').textContent = data.activeTrades;
+}
+
+// Update active trades table
+function updateActiveTrades(trades) {
+    const tbody = document.getElementById('active-trades-body');
+    tbody.innerHTML = trades.map(trade => `
+        <tr>
+            <td>${trade.symbol}</td>
+            <td>${trade.type}</td>
+            <td>${formatCurrency(trade.entryPrice)}</td>
+            <td>${formatCurrency(trade.currentPrice)}</td>
+            <td class="${trade.pl >= 0 ? 'positive' : 'negative'}">${formatCurrency(trade.pl)}</td>
+            <td class="${trade.plPercent >= 0 ? 'positive' : 'negative'}">${formatPercentage(trade.plPercent)}</td>
+            <td>${formatTime(trade.time)}</td>
+            <td>
+                <button onclick="closeTrade('${trade.id}')" class="btn btn-sm btn-danger">Close</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Update recent trades table
+function updateRecentTrades(trades) {
+    const tbody = document.getElementById('recent-trades-body');
+    tbody.innerHTML = trades.map(trade => `
+        <tr>
+            <td>${trade.symbol}</td>
+            <td>${trade.type}</td>
+            <td>${formatCurrency(trade.entryPrice)}</td>
+            <td>${formatCurrency(trade.exitPrice)}</td>
+            <td class="${trade.pl >= 0 ? 'positive' : 'negative'}">${formatCurrency(trade.pl)}</td>
+            <td class="${trade.plPercent >= 0 ? 'positive' : 'negative'}">${formatPercentage(trade.plPercent)}</td>
+            <td>${formatTime(trade.time)}</td>
+        </tr>
+    `).join('');
+}
+
+// Utility functions
+function formatCurrency(value) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+    }).format(value);
+}
+
+function formatPercentage(value) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'percent',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(value / 100);
+}
+
+function formatTime(timestamp) {
+    return new Date(timestamp).toLocaleString();
+}
+
+// Event listeners
+document.getElementById('start-trading').addEventListener('click', () => {
+    socket.emit('start_trading');
+});
+
+document.getElementById('stop-trading').addEventListener('click', () => {
+    socket.emit('stop_trading');
+});
+
+document.getElementById('emergency-stop').addEventListener('click', () => {
+    socket.emit('emergency_stop');
+});
+
+document.getElementById('refresh-chart').addEventListener('click', () => {
+    const symbol = document.getElementById('symbol').value;
+    const timeframe = document.getElementById('timeframe').value;
+    socket.emit('refresh_chart', { symbol, timeframe });
+});
+
+// WebSocket event handlers
+socket.on('chart_data', updateChart);
+socket.on('metrics_update', updateMetrics);
+socket.on('active_trades_update', updateActiveTrades);
+socket.on('recent_trades_update', updateRecentTrades);
+socket.on('bot_status', (status) => {
+    document.getElementById('bot-status').textContent = status.state;
+    document.getElementById('trading-mode').textContent = status.mode;
+    document.getElementById('last-update').textContent = formatTime(status.lastUpdate);
+});
+
+// Initialize chart on page load
+document.addEventListener('DOMContentLoaded', initializeChart);
+</script>
+{% endblock %}
+

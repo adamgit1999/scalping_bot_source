@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+
+{% block title %}Setup - Scalping Bot{% endblock %}
+
+{% block content %}
+<div class="setup-container">
+    <div class="card">
+        <h1>Bot Setup</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message }}
+                        <button class="alert-close">&times;</button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('setup') }}" class="setup-form" id="setup-form">
+            <!-- Broker Selection -->
+            <div class="form-section">
+                <h2>Broker Configuration</h2>
+                <div class="form-group">
+                    <label for="broker" class="form-label">Select Broker</label>
+                    <select id="broker" name="broker" class="form-input" required>
+                        <option value="">Select a broker...</option>
+                        <option value="binance">Binance</option>
+                        <option value="coinbase">Coinbase</option>
+                        <option value="kraken">Kraken</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="api_key" class="form-label">API Key</label>
+                    <input type="text" id="api_key" name="api_key" class="form-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="api_secret" class="form-label">API Secret</label>
+                    <input type="password" id="api_secret" name="api_secret" class="form-input" required>
+                </div>
+            </div>
+
+            <!-- Trading Configuration -->
+            <div class="form-section">
+                <h2>Trading Settings</h2>
+                <div class="form-group">
+                    <label for="symbol" class="form-label">Trading Pair</label>
+                    <input type="text" id="symbol" name="symbol" class="form-input" required
+                           placeholder="e.g., BTC/USDT">
+                </div>
+
+                <div class="form-group">
+                    <label for="interval" class="form-label">Candle Interval</label>
+                    <select id="interval" name="interval" class="form-input" required>
+                        <option value="1m">1 Minute</option>
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m">15 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                        <option value="4h">4 Hours</option>
+                        <option value="1d">1 Day</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="position_size" class="form-label">Position Size (USDT)</label>
+                    <input type="number" id="position_size" name="position_size" class="form-input" required
+                           min="10" step="10" value="100">
+                </div>
+
+                <div class="form-group">
+                    <label for="pair_filters" class="form-label">Trading Pair Filters (JSON)</label>
+                    <textarea id="pair_filters" name="pair_filters" class="form-input" rows="4"
+                              placeholder='["BTC/USDT", "ETH/USDT", "BNB/USDT"]'></textarea>
+                </div>
+            </div>
+
+            <!-- Mode Configuration -->
+            <div class="form-section">
+                <h2>Mode Settings</h2>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="mock_mode" name="mock_mode">
+                        Enable Mock Trading (Paper Trading)
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label for="auto_withdraw" class="form-label">Auto-Withdraw Threshold (USDT)</label>
+                    <input type="number" id="auto_withdraw" name="auto_withdraw" class="form-input"
+                           min="0" step="100" value="1000">
+                </div>
+            </div>
+
+            <!-- UI Configuration -->
+            <div class="form-section">
+                <h2>UI Settings</h2>
+                <div class="form-group">
+                    <label for="theme" class="form-label">Theme</label>
+                    <select id="theme" name="theme" class="form-input">
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="webhook_url" class="form-label">Webhook URL (for notifications)</label>
+                    <input type="url" id="webhook_url" name="webhook_url" class="form-input"
+                           placeholder="https://your-webhook-url.com">
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="show_qr" name="show_qr">
+                        Show QR Code for Mobile Access
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save Configuration</button>
+                <button type="button" class="btn btn-secondary" onclick="testConnection()">Test Connection</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.setup-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.form-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.form-section:last-child {
+    border-bottom: none;
+}
+
+.form-section h2 {
+    color: var(--primary-color);
+    margin-bottom: 1.5rem;
+    font-size: 1.25rem;
+}
+
+.setup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+textarea.form-input {
+    resize: vertical;
+    min-height: 100px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .setup-container {
+        padding: 1rem;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+
+    .form-actions button {
+        width: 100%;
+    }
+}
+</style>
+
+<script>
+document.querySelectorAll('.alert-close').forEach(button => {
+    button.addEventListener('click', function() {
+        this.parentElement.remove();
+    });
+});
+
+// Test broker connection
+function testConnection() {
+    const form = document.getElementById('setup-form');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+
+    fetch('/api/test_connection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('success', 'Connection successful!');
+        } else {
+            showAlert('error', data.message || 'Connection failed');
+        }
+    })
+    .catch(error => {
+        showAlert('error', 'Error testing connection: ' + error);
+    });
+}
+
+// Show alert message
+function showAlert(type, message) {
+    const alertContainer = document.createElement('div');
+    alertContainer.className = `alert alert-${type}`;
+    alertContainer.innerHTML = `
+        ${message}
+        <button class="alert-close">&times;</button>
+    `;
+    document.querySelector('.setup-form').prepend(alertContainer);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        alertContainer.remove();
+    }, 5000);
+}
+
+// Load saved configuration
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/config')
+        .then(response => response.json())
+        .then(config => {
+            if (config) {
+                Object.entries(config).forEach(([key, value]) => {
+                    const element = document.getElementById(key);
+                    if (element) {
+                        if (element.type === 'checkbox') {
+                            element.checked = value;
+                        } else {
+                            element.value = value;
+                        }
+                    }
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error loading configuration:', error);
+        });
+});
+</script>
+{% endblock %}

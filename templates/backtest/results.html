@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest Results - Scalping Bot{% endblock %}
+
+{% block content %}
+<div class="results-container">
+    <div class="results-header">
+        <h1>Backtest Results</h1>
+        <div class="results-actions">
+            <button onclick="exportResults('pdf')" class="btn btn-secondary">Export PDF</button>
+            <button onclick="exportResults('csv')" class="btn btn-secondary">Export CSV</button>
+            <button onclick="window.location.href='{{ url_for('backtest.backtest') }}'" class="btn btn-primary">New Backtest</button>
+        </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <h3>Total Return</h3>
+            <div class="metric-value" id="total-return">0%</div>
+            <div class="metric-change" id="total-return-change">$0.00</div>
+        </div>
+        <div class="metric-card">
+            <h3>Win Rate</h3>
+            <div class="metric-value" id="win-rate">0%</div>
+            <div class="metric-subtext">Total Trades: <span id="total-trades">0</span></div>
+        </div>
+        <div class="metric-card">
+            <h3>Profit Factor</h3>
+            <div class="metric-value" id="profit-factor">0.00</div>
+            <div class="metric-subtext">Risk/Reward Ratio</div>
+        </div>
+        <div class="metric-card">
+            <h3>Max Drawdown</h3>
+            <div class="metric-value" id="max-drawdown">0%</div>
+            <div class="metric-subtext">Worst Period</div>
+        </div>
+    </div>
+
+    <!-- Performance Chart -->
+    <div class="chart-section">
+        <div class="card">
+            <h2>Performance Chart</h2>
+            <div id="performance-chart" class="chart-container"></div>
+        </div>
+    </div>
+
+    <!-- Trade Distribution -->
+    <div class="distribution-grid">
+        <div class="card">
+            <h2>Trade Distribution</h2>
+            <div id="trade-distribution" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>Monthly Returns</h2>
+            <div id="monthly-returns" class="chart-container"></div>
+        </div>
+    </div>
+
+    <!-- Trade List -->
+    <div class="trades-section">
+        <div class="card">
+            <div class="card-header">
+                <h2>Trade History</h2>
+                <div class="trades-filter">
+                    <select id="trade-filter" class="form-input">
+                        <option value="all">All Trades</option>
+                        <option value="winning">Winning Trades</option>
+                        <option value="losing">Losing Trades</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Entry Price</th>
+                            <th>Exit Price</th>
+                            <th>Quantity</th>
+                            <th>P/L</th>
+                            <th>P/L %</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-body">
+                        <!-- Trades will be populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Strategy Parameters -->
+    <div class="parameters-section">
+        <div class="card">
+            <h2>Strategy Parameters</h2>
+            <div class="parameters-grid" id="strategy-parameters">
+                <!-- Parameters will be populated dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.results-container {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.results-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.metric-card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: var(--card-shadow);
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: 0.5rem 0;
+}
+
+.metric-change {
+    font-size: 0.9rem;
+}
+
+.metric-change.positive {
+    color: var(--success-color);
+}
+
+.metric-change.negative {
+    color: var(--danger-color);
+}
+
+.metric-subtext {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.chart-section {
+    width: 100%;
+}
+
+.chart-container {
+    height: 400px;
+    width: 100%;
+}
+
+.distribution-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1rem;
+}
+
+.trades-section {
+    width: 100%;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.trades-filter {
+    display: flex;
+    gap: 1rem;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.trades-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.trades-table th,
+.trades-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trades-table th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+}
+
+.parameters-section {
+    width: 100%;
+}
+
+.parameters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.parameter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.parameter-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.parameter-value {
+    font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+    .results-header {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .results-actions {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .results-actions button {
+        width: 100%;
+    }
+
+    .distribution-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .card-header {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .trades-filter {
+        width: 100%;
+    }
+
+    .trades-filter select {
+        width: 100%;
+    }
+}
+</style>
+
+<script>
+// Initialize charts when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadBacktestResults();
+});
+
+// Load backtest results
+function loadBacktestResults() {
+    const backtestId = window.location.pathname.split('/').pop();
+    
+    fetch(`/api/backtest/${backtestId}/results`)
+        .then(response => response.json())
+        .then(data => {
+            updateMetrics(data.metrics);
+            updateCharts(data.charts);
+            updateTrades(data.trades);
+            updateParameters(data.parameters);
+        })
+        .catch(error => {
+            console.error('Error loading backtest results:', error);
+            showAlert('error', 'Failed to load backtest results');
+        });
+}
+
+// Update metrics
+function updateMetrics(metrics) {
+    document.getElementById('total-return').textContent = formatPercentage(metrics.totalReturn);
+    document.getElementById('total-return-change').textContent = formatCurrency(metrics.totalReturnAmount);
+    document.getElementById('win-rate').textContent = formatPercentage(metrics.winRate);
+    document.getElementById('total-trades').textContent = metrics.totalTrades;
+    document.getElementById('profit-factor').textContent = metrics.profitFactor.toFixed(2);
+    document.getElementById('max-drawdown').textContent = formatPercentage(metrics.maxDrawdown);
+}
+
+// Update charts
+function updateCharts(charts) {
+    // Performance chart
+    Plotly.newPlot('performance-chart', [{
+        x: charts.performance.timestamps,
+        y: charts.performance.equity,
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Equity Curve'
+    }], {
+        title: 'Equity Curve',
+        xaxis: { title: 'Time' },
+        yaxis: { title: 'Equity' }
+    });
+
+    // Trade distribution
+    Plotly.newPlot('trade-distribution', [{
+        values: charts.distribution.values,
+        labels: charts.distribution.labels,
+        type: 'pie',
+        name: 'Trade Distribution'
+    }], {
+        title: 'Trade Distribution'
+    });
+
+    // Monthly returns
+    Plotly.newPlot('monthly-returns', [{
+        x: charts.monthlyReturns.months,
+        y: charts.monthlyReturns.returns,
+        type: 'bar',
+        name: 'Monthly Returns'
+    }], {
+        title: 'Monthly Returns',
+        xaxis: { title: 'Month' },
+        yaxis: { title: 'Return %' }
+    });
+}
+
+// Update trades table
+function updateTrades(trades) {
+    const tbody = document.getElementById('trades-body');
+    tbody.innerHTML = trades.map(trade => `
+        <tr>
+            <td>${formatDate(trade.date)}</td>
+            <td>${trade.type}</td>
+            <td>${formatCurrency(trade.entryPrice)}</td>
+            <td>${formatCurrency(trade.exitPrice)}</td>
+            <td>${formatNumber(trade.quantity)}</td>
+            <td class="${trade.pl >= 0 ? 'positive' : 'negative'}">${formatCurrency(trade.pl)}</td>
+            <td class="${trade.plPercent >= 0 ? 'positive' : 'negative'}">${formatPercentage(trade.plPercent)}</td>
+            <td>${formatDuration(trade.duration)}</td>
+        </tr>
+    `).join('');
+}
+
+// Update strategy parameters
+function updateParameters(parameters) {
+    const container = document.getElementById('strategy-parameters');
+    container.innerHTML = Object.entries(parameters).map(([key, value]) => `
+        <div class="parameter-item">
+            <span class="parameter-label">${formatParameterName(key)}</span>
+            <span class="parameter-value">${formatParameterValue(value)}</span>
+        </div>
+    `).join('');
+}
+
+// Export results
+function exportResults(format) {
+    const backtestId = window.location.pathname.split('/').pop();
+    window.location.href = `/api/backtest/${backtestId}/export?format=${format}`;
+}
+
+// Utility functions
+function formatCurrency(value) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+    }).format(value);
+}
+
+function formatPercentage(value) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'percent',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(value / 100);
+}
+
+function formatNumber(value) {
+    return new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 8
+    }).format(value);
+}
+
+function formatDate(timestamp) {
+    return new Date(timestamp).toLocaleString();
+}
+
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+}
+
+function formatParameterName(name) {
+    return name.split('_').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+}
+
+function formatParameterValue(value) {
+    if (typeof value === 'number') {
+        return value.toFixed(2);
+    }
+    return value;
+}
+
+// Show alert message
+function showAlert(type, message) {
+    const alertContainer = document.createElement('div');
+    alertContainer.className = `alert alert-${type}`;
+    alertContainer.innerHTML = `
+        ${message}
+        <button class="alert-close">&times;</button>
+    `;
+    document.querySelector('.results-container').prepend(alertContainer);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        alertContainer.remove();
+    }, 5000);
+}
+
+// Filter trades
+document.getElementById('trade-filter').addEventListener('change', function() {
+    const filter = this.value;
+    const rows = document.querySelectorAll('#trades-body tr');
+    
+    rows.forEach(row => {
+        const pl = parseFloat(row.querySelector('td:nth-child(6)').textContent.replace(/[^0-9.-]+/g, ''));
+        row.style.display = 
+            filter === 'all' ? '' :
+            filter === 'winning' && pl > 0 ? '' :
+            filter === 'losing' && pl < 0 ? '' :
+            'none';
+    });
+});
+</script>
+{% endblock %} 

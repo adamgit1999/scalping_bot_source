@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Equity Analysis{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chart-container {
+        height: 400px;
+        width: 100%;
+    }
+    .metrics-card {
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Performance Metrics -->
+    <div class="col-md-3">
+        <div class="card metrics-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Performance Metrics</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <h6>Total Return</h6>
+                    <h3 id="totalReturn">0.00%</h3>
+                </div>
+                <div class="mb-3">
+                    <h6>Win Rate</h6>
+                    <h3 id="winRate">0.00%</h3>
+                </div>
+                <div class="mb-3">
+                    <h6>Profit Factor</h6>
+                    <h3 id="profitFactor">0.00</h3>
+                </div>
+                <div class="mb-3">
+                    <h6>Max Drawdown</h6>
+                    <h3 id="maxDrawdown">0.00%</h3>
+                </div>
+                <div class="mb-3">
+                    <h6>Average Trade</h6>
+                    <h3 id="avgTrade">0.00</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="card metrics-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Trade Timeline</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Filter by Tag</label>
+                    <select class="form-select" id="tagFilter">
+                        <option value="all">All Trades</option>
+                        <option value="win">Winning Trades</option>
+                        <option value="loss">Losing Trades</option>
+                    </select>
+                </div>
+                <div id="tradeTimeline" style="height: 300px; overflow-y: auto;">
+                    <!-- Trade timeline items will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="col-md-9">
+        <!-- Equity Curve -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Equity Curve</h5>
+            </div>
+            <div class="card-body">
+                <div id="equityChart" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- Deposit vs Earnings -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Deposit vs Earnings</h5>
+            </div>
+            <div class="card-body">
+                <div id="depositChart" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Initialize charts
+    const equityChart = new ChartHandler('equityChart');
+    const depositChart = new ChartHandler('depositChart');
+    
+    // Socket connection
+    const socket = io();
+    
+    // Handle real-time updates
+    socket.on('equity_update', function(data) {
+        equityChart.updateEquity(data);
+        updateMetrics(data.metrics);
+    });
+    
+    socket.on('deposit_update', function(data) {
+        depositChart.updateDeposits(data);
+    });
+    
+    // Update metrics display
+    function updateMetrics(metrics) {
+        document.getElementById('totalReturn').textContent = metrics.totalReturn.toFixed(2) + '%';
+        document.getElementById('winRate').textContent = metrics.winRate.toFixed(2) + '%';
+        document.getElementById('profitFactor').textContent = metrics.profitFactor.toFixed(2);
+        document.getElementById('maxDrawdown').textContent = metrics.maxDrawdown.toFixed(2) + '%';
+        document.getElementById('avgTrade').textContent = metrics.avgTrade.toFixed(2);
+    }
+    
+    // Handle trade timeline filtering
+    document.getElementById('tagFilter').addEventListener('change', function(e) {
+        const filter = e.target.value;
+        socket.emit('filter_trades', { filter: filter });
+    });
+    
+    // Handle trade timeline updates
+    socket.on('trade_timeline', function(data) {
+        const timeline = document.getElementById('tradeTimeline');
+        timeline.innerHTML = '';
+        
+        data.trades.forEach(trade => {
+            const item = document.createElement('div');
+            item.className = `trade-item ${trade.type}`;
+            item.innerHTML = `
+                <div class="d-flex justify-content-between">
+                    <span>${trade.symbol}</span>
+                    <span class="${trade.profit >= 0 ? 'text-success' : 'text-danger'}">
+                        ${trade.profit.toFixed(2)}
+                    </span>
+                </div>
+                <small class="text-muted">${new Date(trade.timestamp).toLocaleString()}</small>
+            `;
+            timeline.appendChild(item);
+        });
+    });
+    
+    // Initial load
+    fetch('/api/equity/history')
+        .then(response => response.json())
+        .then(data => {
+            equityChart.initializeEquity(data);
+            depositChart.initializeDeposits(data);
+            updateMetrics(data.metrics);
+        });
+</script>
+{% endblock %}

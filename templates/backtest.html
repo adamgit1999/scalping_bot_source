@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy Backtest{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chart-container {
+        height: 400px;
+        width: 100%;
+    }
+    .results-card {
+        margin-bottom: 1rem;
+    }
+    .trade-list {
+        height: 300px;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Backtest Controls -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Backtest Settings</h5>
+            </div>
+            <div class="card-body">
+                <form id="backtestForm">
+                    <!-- Strategy Selection -->
+                    <div class="mb-3">
+                        <label class="form-label">Strategy</label>
+                        <select class="form-select" id="strategy" required>
+                            <option value="">Select Strategy</option>
+                            <option value="default_strategy">Default Strategy</option>
+                            <!-- Additional strategies will be loaded dynamically -->
+                        </select>
+                    </div>
+
+                    <!-- Date Range -->
+                    <div class="mb-3">
+                        <label class="form-label">Start Date</label>
+                        <input type="datetime-local" class="form-control" id="startDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">End Date</label>
+                        <input type="datetime-local" class="form-control" id="endDate" required>
+                    </div>
+
+                    <!-- Trading Pair -->
+                    <div class="mb-3">
+                        <label class="form-label">Trading Pair</label>
+                        <select class="form-select" id="symbol" required>
+                            <option value="BTC/USDT">BTC/USDT</option>
+                            <option value="ETH/USDT">ETH/USDT</option>
+                            <option value="BNB/USDT">BNB/USDT</option>
+                        </select>
+                    </div>
+
+                    <!-- Initial Balance -->
+                    <div class="mb-3">
+                        <label class="form-label">Initial Balance</label>
+                        <input type="number" class="form-control" id="initialBalance" value="10000" required>
+                    </div>
+
+                    <!-- Strategy Parameters -->
+                    <div id="strategyParams">
+                        <!-- Parameters will be loaded dynamically based on selected strategy -->
+                    </div>
+
+                    <!-- Run Backtest -->
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Run Backtest</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Display -->
+    <div class="col-md-9">
+        <!-- Equity Curve -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Equity Curve</h5>
+            </div>
+            <div class="card-body">
+                <div id="equityChart" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card results-card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Performance Metrics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <h6>Total Return</h6>
+                            <h3 id="totalReturn">-</h3>
+                        </div>
+                        <div class="mb-3">
+                            <h6>Win Rate</h6>
+                            <h3 id="winRate">-</h3>
+                        </div>
+                        <div class="mb-3">
+                            <h6>Profit Factor</h6>
+                            <h3 id="profitFactor">-</h3>
+                        </div>
+                        <div class="mb-3">
+                            <h6>Max Drawdown</h6>
+                            <h3 id="maxDrawdown">-</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card results-card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Trade List</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="tradeList" class="trade-list">
+                            <!-- Trade entries will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Initialize chart
+    const equityChart = new ChartHandler('equityChart');
+    
+    // Load strategy parameters when strategy is selected
+    document.getElementById('strategy').addEventListener('change', function(e) {
+        const strategy = e.target.value;
+        if (strategy) {
+            fetch(`/api/strategy/${strategy}/parameters`)
+                .then(response => response.json())
+                .then(data => {
+                    const paramsContainer = document.getElementById('strategyParams');
+                    paramsContainer.innerHTML = '';
+                    
+                    data.parameters.forEach(param => {
+                        const div = document.createElement('div');
+                        div.className = 'mb-3';
+                        div.innerHTML = `
+                            <label class="form-label">${param.name}</label>
+                            <input type="${param.type}" class="form-control" 
+                                   id="param_${param.name}" 
+                                   value="${param.default}"
+                                   ${param.required ? 'required' : ''}>
+                        `;
+                        paramsContainer.appendChild(div);
+                    });
+                });
+        }
+    });
+    
+    // Handle backtest form submission
+    document.getElementById('backtestForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            strategy: document.getElementById('strategy').value,
+            startDate: document.getElementById('startDate').value,
+            endDate: document.getElementById('endDate').value,
+            symbol: document.getElementById('symbol').value,
+            initialBalance: document.getElementById('initialBalance').value,
+            parameters: {}
+        };
+        
+        // Collect strategy parameters
+        const paramsContainer = document.getElementById('strategyParams');
+        paramsContainer.querySelectorAll('input').forEach(input => {
+            const paramName = input.id.replace('param_', '');
+            formData.parameters[paramName] = input.value;
+        });
+        
+        // Run backtest
+        fetch('/api/backtest/run', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update equity chart
+            equityChart.initializeEquity(data.equity_curve);
+            
+            // Update metrics
+            document.getElementById('totalReturn').textContent = 
+                (data.metrics.total_return * 100).toFixed(2) + '%';
+            document.getElementById('winRate').textContent = 
+                (data.metrics.win_rate * 100).toFixed(2) + '%';
+            document.getElementById('profitFactor').textContent = 
+                data.metrics.profit_factor.toFixed(2);
+            document.getElementById('maxDrawdown').textContent = 
+                (data.metrics.max_drawdown * 100).toFixed(2) + '%';
+            
+            // Update trade list
+            const tradeList = document.getElementById('tradeList');
+            tradeList.innerHTML = '';
+            
+            data.trades.forEach(trade => {
+                const div = document.createElement('div');
+                div.className = `trade-item ${trade.profit >= 0 ? 'text-success' : 'text-danger'}`;
+                div.innerHTML = `
+                    <div class="d-flex justify-content-between">
+                        <span>${trade.symbol}</span>
+                        <span>${trade.profit.toFixed(2)}</span>
+                    </div>
+                    <small class="text-muted">${new Date(trade.timestamp).toLocaleString()}</small>
+                `;
+                tradeList.appendChild(div);
+            });
+        });
+    });
+    
+    // Set default date range (last 30 days)
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+    
+    document.getElementById('endDate').value = endDate.toISOString().slice(0, 16);
+    document.getElementById('startDate').value = startDate.toISOString().slice(0, 16);
+</script>
+{% endblock %}

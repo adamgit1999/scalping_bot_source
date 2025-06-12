@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Logs{% endblock %}
+
+{% block extra_head %}
+<style>
+    .log-container {
+        height: 600px;
+        overflow-y: auto;
+        font-family: monospace;
+    }
+    .log-entry {
+        padding: 0.25rem 0.5rem;
+        border-bottom: 1px solid #eee;
+    }
+    .log-entry:hover {
+        background-color: #f8f9fa;
+    }
+    .log-entry.ERROR {
+        color: #dc3545;
+    }
+    .log-entry.WARNING {
+        color: #ffc107;
+    }
+    .log-entry.INFO {
+        color: #0dcaf0;
+    }
+    .log-entry.SUCCESS {
+        color: #198754;
+    }
+    .log-timestamp {
+        color: #6c757d;
+        margin-right: 1rem;
+    }
+    .log-level {
+        font-weight: bold;
+        margin-right: 1rem;
+    }
+    .log-message {
+        white-space: pre-wrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Log Controls -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Log Controls</h5>
+            </div>
+            <div class="card-body">
+                <!-- Level Filter -->
+                <div class="mb-3">
+                    <label class="form-label">Log Level</label>
+                    <select class="form-select" id="levelFilter">
+                        <option value="ALL">All Levels</option>
+                        <option value="ERROR">Error</option>
+                        <option value="WARNING">Warning</option>
+                        <option value="INFO">Info</option>
+                        <option value="SUCCESS">Success</option>
+                    </select>
+                </div>
+
+                <!-- Search -->
+                <div class="mb-3">
+                    <label class="form-label">Search</label>
+                    <input type="text" class="form-control" id="logSearch" placeholder="Search logs...">
+                </div>
+
+                <!-- Auto-scroll -->
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="autoScroll" checked>
+                    <label class="form-check-label" for="autoScroll">Auto-scroll</label>
+                </div>
+
+                <!-- Clear Logs -->
+                <div class="d-grid">
+                    <button class="btn btn-danger" id="clearLogs">Clear Logs</button>
+                </div>
+
+                <!-- Export -->
+                <div class="d-grid mt-3">
+                    <button class="btn btn-primary" id="exportLogs">Export Logs</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Display -->
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Trading Logs</h5>
+                <span class="badge bg-primary" id="logCount">0 logs</span>
+            </div>
+            <div class="card-body">
+                <div id="logContainer" class="log-container">
+                    <!-- Log entries will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Socket connection
+    const socket = io();
+    const logContainer = document.getElementById('logContainer');
+    let autoScroll = true;
+    let currentFilter = 'ALL';
+    let searchTerm = '';
+    
+    // Handle new log entries
+    socket.on('log_entry', function(data) {
+        if (shouldDisplayLog(data)) {
+            addLogEntry(data);
+        }
+    });
+    
+    // Add log entry to display
+    function addLogEntry(log) {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${log.level}`;
+        entry.innerHTML = `
+            <span class="log-timestamp">${new Date(log.timestamp).toLocaleString()}</span>
+            <span class="log-level">${log.level}</span>
+            <span class="log-message">${log.message}</span>
+        `;
+        logContainer.appendChild(entry);
+        
+        if (autoScroll) {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        updateLogCount();
+    }
+    
+    // Check if log should be displayed based on filters
+    function shouldDisplayLog(log) {
+        if (currentFilter !== 'ALL' && log.level !== currentFilter) {
+            return false;
+        }
+        
+        if (searchTerm && !log.message.toLowerCase().includes(searchTerm.toLowerCase())) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // Update log count
+    function updateLogCount() {
+        const count = logContainer.children.length;
+        document.getElementById('logCount').textContent = `${count} logs`;
+    }
+    
+    // Event Listeners
+    document.getElementById('levelFilter').addEventListener('change', function(e) {
+        currentFilter = e.target.value;
+        refreshLogs();
+    });
+    
+    document.getElementById('logSearch').addEventListener('input', function(e) {
+        searchTerm = e.target.value;
+        refreshLogs();
+    });
+    
+    document.getElementById('autoScroll').addEventListener('change', function(e) {
+        autoScroll = e.target.checked;
+    });
+    
+    document.getElementById('clearLogs').addEventListener('click', function() {
+        logContainer.innerHTML = '';
+        updateLogCount();
+    });
+    
+    document.getElementById('exportLogs').addEventListener('click', function() {
+        const logs = Array.from(logContainer.children).map(entry => {
+            return {
+                timestamp: entry.querySelector('.log-timestamp').textContent,
+                level: entry.querySelector('.log-level').textContent,
+                message: entry.querySelector('.log-message').textContent
+            };
+        });
+        
+        const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `trading_logs_${new Date().toISOString()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+    
+    // Refresh logs based on current filters
+    function refreshLogs() {
+        socket.emit('get_logs', {
+            filter: currentFilter,
+            search: searchTerm
+        });
+    }
+    
+    // Initial load
+    refreshLogs();
+</script>
+{% endblock %}

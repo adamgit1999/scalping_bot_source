@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Performance Report{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chart-container {
+        height: 400px;
+        width: 100%;
+    }
+    .metrics-card {
+        margin-bottom: 1rem;
+    }
+    .report-section {
+        margin-bottom: 2rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Report Controls -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Report Controls</h5>
+            </div>
+            <div class="card-body">
+                <!-- Date Range -->
+                <div class="mb-3">
+                    <label class="form-label">Start Date</label>
+                    <input type="date" class="form-control" id="startDate">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">End Date</label>
+                    <input type="date" class="form-control" id="endDate">
+                </div>
+
+                <!-- Strategy Filter -->
+                <div class="mb-3">
+                    <label class="form-label">Strategy</label>
+                    <select class="form-select" id="strategyFilter">
+                        <option value="all">All Strategies</option>
+                        <!-- Strategies will be loaded dynamically -->
+                    </select>
+                </div>
+
+                <!-- Export Options -->
+                <div class="mb-3">
+                    <label class="form-label">Export Format</label>
+                    <select class="form-select" id="exportFormat">
+                        <option value="pdf">PDF</option>
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                    </select>
+                </div>
+
+                <!-- Generate Report -->
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary" id="generateReport">Generate Report</button>
+                    <button class="btn btn-success" id="exportReport">Export Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Content -->
+    <div class="col-md-9">
+        <!-- Summary Section -->
+        <div class="card report-section">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Performance Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="metrics-card">
+                            <h6>Total Return</h6>
+                            <h3 id="totalReturn">-</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metrics-card">
+                            <h6>Win Rate</h6>
+                            <h3 id="winRate">-</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metrics-card">
+                            <h6>Profit Factor</h6>
+                            <h3 id="profitFactor">-</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metrics-card">
+                            <h6>Max Drawdown</h6>
+                            <h3 id="maxDrawdown">-</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Equity Curve -->
+        <div class="card report-section">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Equity Curve</h5>
+            </div>
+            <div class="card-body">
+                <div id="equityChart" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- Trade Analysis -->
+        <div class="card report-section">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Trade Analysis</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div id="tradeDistributionChart" class="chart-container"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div id="profitDistributionChart" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monthly Performance -->
+        <div class="card report-section">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Monthly Performance</h5>
+            </div>
+            <div class="card-body">
+                <div id="monthlyPerformanceChart" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- Trade List -->
+        <div class="card report-section">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Trade History</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Symbol</th>
+                                <th>Type</th>
+                                <th>Price</th>
+                                <th>Amount</th>
+                                <th>Profit</th>
+                                <th>Strategy</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeList">
+                            <!-- Trade entries will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Initialize charts
+    const equityChart = new ChartHandler('equityChart');
+    const tradeDistributionChart = new ChartHandler('tradeDistributionChart');
+    const profitDistributionChart = new ChartHandler('profitDistributionChart');
+    const monthlyPerformanceChart = new ChartHandler('monthlyPerformanceChart');
+    
+    // Load strategies
+    fetch('/api/strategies')
+        .then(response => response.json())
+        .then(data => {
+            const strategyFilter = document.getElementById('strategyFilter');
+            data.forEach(strategy => {
+                const option = document.createElement('option');
+                option.value = strategy.id;
+                option.textContent = strategy.name;
+                strategyFilter.appendChild(option);
+            });
+        });
+    
+    // Set default date range (last 30 days)
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+    
+    document.getElementById('endDate').value = endDate.toISOString().split('T')[0];
+    document.getElementById('startDate').value = startDate.toISOString().split('T')[0];
+    
+    // Generate report
+    document.getElementById('generateReport').addEventListener('click', function() {
+        const params = {
+            startDate: document.getElementById('startDate').value,
+            endDate: document.getElementById('endDate').value,
+            strategy: document.getElementById('strategyFilter').value
+        };
+        
+        fetch('/api/report/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(params)
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update metrics
+            document.getElementById('totalReturn').textContent = 
+                (data.metrics.total_return * 100).toFixed(2) + '%';
+            document.getElementById('winRate').textContent = 
+                (data.metrics.win_rate * 100).toFixed(2) + '%';
+            document.getElementById('profitFactor').textContent = 
+                data.metrics.profit_factor.toFixed(2);
+            document.getElementById('maxDrawdown').textContent = 
+                (data.metrics.max_drawdown * 100).toFixed(2) + '%';
+            
+            // Update charts
+            equityChart.initializeEquity(data.equity_curve);
+            tradeDistributionChart.initializeTradeDistribution(data.trade_distribution);
+            profitDistributionChart.initializeProfitDistribution(data.profit_distribution);
+            monthlyPerformanceChart.initializeMonthlyPerformance(data.monthly_performance);
+            
+            // Update trade list
+            const tradeList = document.getElementById('tradeList');
+            tradeList.innerHTML = '';
+            
+            data.trades.forEach(trade => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${new Date(trade.timestamp).toLocaleString()}</td>
+                    <td>${trade.symbol}</td>
+                    <td>${trade.type}</td>
+                    <td>${trade.price.toFixed(2)}</td>
+                    <td>${trade.amount.toFixed(4)}</td>
+                    <td class="${trade.profit >= 0 ? 'text-success' : 'text-danger'}">
+                        ${trade.profit.toFixed(2)}
+                    </td>
+                    <td>${trade.strategy}</td>
+                `;
+                tradeList.appendChild(row);
+            });
+        });
+    });
+    
+    // Export report
+    document.getElementById('exportReport').addEventListener('click', function() {
+        const format = document.getElementById('exportFormat').value;
+        const params = {
+            startDate: document.getElementById('startDate').value,
+            endDate: document.getElementById('endDate').value,
+            strategy: document.getElementById('strategyFilter').value,
+            format: format
+        };
+        
+        window.location.href = `/api/report/export?${new URLSearchParams(params)}`;
+    });
+    
+    // Initial report generation
+    document.getElementById('generateReport').click();
+</script>
+{% endblock %}
