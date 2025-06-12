@@ -1,5 +1,5 @@
 import pytest
-from trading_engine import TradingEngine
+from src.trading_engine import TradingEngine
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
@@ -99,6 +99,104 @@ async def test_fetch_ohlcv_with_invalid_timeframe(trading_engine):
     """Test fetching OHLCV data with invalid timeframe."""
     with pytest.raises(Exception):
         await trading_engine.fetch_ohlcv('BTC/USDT', 'invalid')
+
+@pytest.mark.asyncio
+async def test_fetch_ohlcv_network_error(trading_engine):
+    """Test handling of network errors during OHLCV data fetching."""
+    # Mock the exchange to raise a network error
+    trading_engine.exchange.fetch_ohlcv = AsyncMock(side_effect=Exception("Network error"))
+    
+    with pytest.raises(Exception) as exc_info:
+        await trading_engine.fetch_ohlcv('BTC/USDT', '1h')
+    assert "Network error" in str(exc_info.value)
+
+@pytest.mark.asyncio
+async def test_concurrent_order_execution(trading_engine):
+    """Test handling of concurrent order execution."""
+    # Create multiple orders to be executed concurrently
+    orders = [
+        ('BTC/USDT', 'buy', 50000.0, 0.1),
+        ('ETH/USDT', 'buy', 3000.0, 1.0),
+        ('BTC/USDT', 'sell', 50100.0, 0.05)
+    ]
+    
+    # Execute orders concurrently
+    tasks = [trading_engine.place_order(*order) for order in orders]
+    results = await asyncio.gather(*tasks)
+    
+    # Verify all orders were executed
+    assert len(results) == len(orders)
+    for result in results:
+        assert result['status'] == 'FILLED'
+        assert result['id'] in trading_engine.orders
+
+@pytest.mark.asyncio
+async def test_position_sizing_with_different_risk(trading_engine, mock_risk_manager):
+    """Test position sizing with different risk parameters."""
+    # Test different risk levels
+    risk_levels = [0.01, 0.02, 0.05]  # 1%, 2%, 5% risk per trade
+    account_balance = Decimal('10000.00')
+    current_price = Decimal('50000.00')
+    
+    for risk_level in risk_levels:
+        mock_risk_manager.calculate_position_size.return_value = account_balance * Decimal(str(risk_level)) / current_price
+        
+        order = Order(
+            id=f'test_order_{risk_level}',
+            type='LIMIT',
+            symbol='BTC/USDT',
+            side='BUY',
+            quantity=Decimal('0.0'),  # Will be calculated by risk manager
+            price=current_price,
+            order_type='LIMIT'
+        )
+        
+        result = await trading_engine.place_order(
+            order.symbol,
+            order.side.lower(),
+            float(order.price),
+            float(mock_risk_manager.calculate_position_size())
+        )
+        
+        # Verify position size is proportional to risk level
+        expected_size = float(account_balance * Decimal(str(risk_level)) / current_price)
+        assert abs(float(result['amount']) - expected_size) < 0.0001
+
+@pytest.mark.asyncio
+async def test_strategy_parameter_validation_edge_cases(trading_engine):
+    """Test strategy parameter validation with edge cases."""
+    # Test with minimum valid values
+    min_params = {
+        'sma_short': 2,
+        'sma_long': 3,
+        'rsi_period': 2,
+        'rsi_oversold': 1,
+        'rsi_overbought': 99
+    }
+    assert trading_engine._validate_parameters('scalping', min_params) is True
+    
+    # Test with maximum valid values
+    max_params = {
+        'sma_short': 100,
+        'sma_long': 200,
+        'rsi_period': 100,
+        'rsi_oversold': 49,
+        'rsi_overbought': 51
+    }
+    assert trading_engine._validate_parameters('scalping', max_params) is True
+    
+    # Test with invalid combinations
+    invalid_params = [
+        {'sma_short': 0, 'sma_long': 20},  # Zero period
+        {'sma_short': -1, 'sma_long': 20},  # Negative period
+        {'sma_short': 20, 'sma_long': 20},  # Equal periods
+        {'rsi_oversold': 70, 'rsi_overbought': 30},  # Invalid RSI levels
+        {'rsi_period': 1}  # Too short RSI period
+    ]
+    
+    for params in invalid_params:
+        with pytest.raises(ValueError):
+            trading_engine._validate_parameters('scalping', params)
 
 def test_calculate_signals_scalping(trading_engine, sample_data):
     """Test scalping strategy signal calculation."""

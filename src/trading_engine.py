@@ -280,3 +280,152 @@ class TradingEngine:
         except Exception as e:
             self.logger.error(f"Failed to place order: {str(e)}")
             raise 
+
+    async def get_balance(self, currency: str) -> float:
+        """Get account balance for a given currency."""
+        if self.broker:
+            return float(self.broker.get_account_balance(currency))
+        raise NotImplementedError("get_balance not implemented")
+
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel an order by ID."""
+        if order_id in self.orders:
+            del self.orders[order_id]
+            return True
+        raise ValueError("Order not found")
+
+    def _calculate_rsi(self, prices: pd.Series, period: int) -> pd.Series:
+        """Calculate RSI indicator."""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        rsi[:period] = np.nan
+        return rsi
+
+    def _calculate_macd(self, prices: pd.Series, fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> tuple:
+        """Calculate MACD indicator."""
+        if fast_period >= slow_period:
+            raise ValueError("fast_period must be less than slow_period")
+        exp1 = prices.ewm(span=fast_period, adjust=False).mean()
+        exp2 = prices.ewm(span=slow_period, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=signal_period, adjust=False).mean()
+        macd[:slow_period-1] = np.nan
+        signal[:slow_period-1] = np.nan
+        return macd, signal
+
+    def _calculate_commission(self, price: float, amount: float) -> float:
+        """Calculate commission for a trade."""
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+        return price * amount * 0.001  # 0.1% commission
+
+    def _validate_parameters(self, strategy: str, parameters: dict) -> bool:
+        """Validate strategy parameters."""
+        if strategy == 'scalping':
+            required = ['sma_short', 'sma_long', 'rsi_period', 'rsi_oversold', 'rsi_overbought']
+            for k in required:
+                if k not in parameters:
+                    raise ValueError(f"Missing parameter: {k}")
+            if parameters['sma_short'] >= parameters['sma_long']:
+                raise ValueError("sma_short must be less than sma_long")
+            if not (1 <= parameters['rsi_oversold'] < parameters['rsi_overbought'] <= 100):
+                raise ValueError("Invalid RSI levels")
+            if parameters['rsi_period'] < 2:
+                raise ValueError("RSI period too short")
+        # Add more strategies as needed
+        elif strategy == 'momentum':
+            required = ['roc_period', 'roc_threshold']
+            for k in required:
+                if k not in parameters:
+                    raise ValueError(f"Missing parameter: {k}")
+        elif strategy == 'mean_reversion':
+            required = ['sma_period', 'std_multiplier']
+            for k in required:
+                if k not in parameters:
+                    raise ValueError(f"Missing parameter: {k}")
+        else:
+            raise ValueError("Unknown strategy")
+        return True
+
+    async def close_all_positions(self):
+        """Close all open positions."""
+        for symbol, amount in list(self.positions.items()):
+            if amount > 0:
+                await self.place_order(symbol, 'sell', (await self.exchange.fetch_ticker(symbol))['last'], amount)
+            elif amount < 0:
+                await self.place_order(symbol, 'buy', (await self.exchange.fetch_ticker(symbol))['last'], abs(amount))
+        self.positions.clear()
+
+    async def update_position(self, position):
+        """Update or add a position."""
+        if hasattr(position, 'symbol') and hasattr(position, 'quantity'):
+            if float(position.quantity) == 0.0:
+                self.positions.pop(position.symbol, None)
+            else:
+                self.positions[position.symbol] = position
+        else:
+            raise ValueError("Invalid position object")
+
+    def record_trade(self, trade):
+        """Record a trade."""
+        self.trades.append(trade)
+
+    async def execute_strategy_signal(self, symbol: str):
+        """Execute a strategy signal for a symbol."""
+        if not self.strategy:
+            return None
+        signal = self.strategy.generate_signal(symbol)
+        if not signal:
+            return None
+        price = self.strategy.calculate_entry_price(symbol)
+        amount = float(self.risk_manager.calculate_position_size(symbol, price))
+        if not self.risk_manager.check_order(symbol, signal, price, amount):
+            raise ValueError("Order rejected by risk manager")
+        order = await self.place_order(symbol, signal.lower(), float(price), amount)
+        return order
+
+    def get_position(self, symbol: str):
+        """Get position for a symbol."""
+        return self.positions.get(symbol)
+
+    def get_open_positions(self):
+        """Get all open positions."""
+        return [p for p in self.positions.values() if hasattr(p, 'quantity') and float(p.quantity) != 0.0]
+
+    def get_trade_history(self, symbol: str):
+        """Get trade history for a symbol."""
+        return [t for t in self.trades if getattr(t, 'symbol', None) == symbol]
+
+    def calculate_pnl(self, symbol: str):
+        """Calculate PnL for a position."""
+        position = self.get_position(symbol)
+        if not position:
+            return {'unrealized_pnl': Decimal('0.00'), 'realized_pnl': Decimal('0.00'), 'total_pnl': Decimal('0.00')}
+        return {
+            'unrealized_pnl': getattr(position, 'unrealized_pnl', Decimal('0.00')),
+            'realized_pnl': getattr(position, 'realized_pnl', Decimal('0.00')),
+            'total_pnl': getattr(position, 'unrealized_pnl', Decimal('0.00')) + getattr(position, 'realized_pnl', Decimal('0.00'))
+        }
+
+    async def process_market_data(self, data: dict):
+        """Process incoming market data and update buffer."""
+        self.market_data_buffer.append(data)
+        start = time.time()
+        if len(self.market_data_buffer) >= self.buffer_size:
+            # Simulate processing
+            await self._update_strategy_data(data)
+            self.metrics['market_data_processing_time'].append(time.time() - start)
+        # Maintain buffer size
+        if len(self.market_data_buffer) > self.buffer_size:
+            self.market_data_buffer = deque(list(self.market_data_buffer)[-self.buffer_size:], maxlen=self.buffer_size)
+
+    async def _update_strategy_data(self, data):
+        """Stub for updating strategy data with new market data."""
+        pass
+
+    def get_performance_metrics(self):
+        """Get performance metrics."""
+        return self.metrics 
