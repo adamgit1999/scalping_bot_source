@@ -1,159 +1,133 @@
-from enum import Enum
-from typing import Dict, List, Optional, Union
-from datetime import datetime
-import asyncio
-import logging
-from dataclasses import dataclass
+"""
+Email & push notifications on thresholds or bot stops.
+"""
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import requests
+from src.config import Config
 import json
-
-class NotificationType(Enum):
-    TRADE = "trade"
-    ERROR = "error"
-    SYSTEM = "system"
-    ALERT = "alert"
-    PERFORMANCE = "performance"
-
-@dataclass
-class Notification:
-    type: NotificationType
-    message: str
-    timestamp: datetime
-    data: Optional[Dict] = None
-    priority: int = 0  # 0-5, where 5 is highest priority
+import os
+import time
+from datetime import datetime
 
 class NotificationManager:
     def __init__(self):
-        self.notifications: List[Notification] = []
-        self.subscribers: Dict[str, List[callable]] = {}
-        self.logger = logging.getLogger(__name__)
-        self._setup_logging()
-
-    def _setup_logging(self):
-        """Setup logging configuration for notifications"""
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
-
-    async def notify(self, notification: Notification) -> None:
-        """Send a notification to all subscribers"""
-        self.notifications.append(notification)
-        self.logger.info(f"Notification: {notification.message}")
+        self.config = Config.load_config()
+        self.email_config = self._load_email_config()
+        self.webhook_url = self.config.get('webhook_url')
+    
+    def _load_email_config(self):
+        """Load email configuration from environment variables"""
+        return {
+            'smtp_server': os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
+            'smtp_port': int(os.getenv('SMTP_PORT', 587)),
+            'smtp_username': os.getenv('SMTP_USERNAME'),
+            'smtp_password': os.getenv('SMTP_PASSWORD'),
+            'from_email': os.getenv('FROM_EMAIL'),
+            'to_email': os.getenv('TO_EMAIL')
+        }
+    
+    def send_notification(self, subject, message, level='info'):
+        """
+        Send notification through all configured channels
         
-        # Notify subscribers
-        for subscriber_list in self.subscribers.values():
-            for subscriber in subscriber_list:
-                try:
-                    await subscriber(notification)
-                except Exception as e:
-                    self.logger.error(f"Error notifying subscriber: {str(e)}")
-
-    def subscribe(self, notification_type: NotificationType, callback: callable) -> None:
-        """Subscribe to notifications of a specific type"""
-        if notification_type.value not in self.subscribers:
-            self.subscribers[notification_type.value] = []
-        self.subscribers[notification_type.value].append(callback)
-
-    def unsubscribe(self, notification_type: NotificationType, callback: callable) -> None:
-        """Unsubscribe from notifications of a specific type"""
-        if notification_type.value in self.subscribers:
-            self.subscribers[notification_type.value].remove(callback)
-
-    def get_notifications(self, 
-                         notification_type: Optional[NotificationType] = None,
-                         limit: int = 100) -> List[Notification]:
-        """Get recent notifications, optionally filtered by type"""
-        notifications = self.notifications
-        if notification_type:
-            notifications = [n for n in notifications if n.type == notification_type]
-        return notifications[-limit:]
-
-    def clear_notifications(self) -> None:
-        """Clear all stored notifications"""
-        self.notifications.clear()
-
-    async def notify_trade(self, 
-                          symbol: str, 
-                          side: str, 
-                          quantity: float, 
-                          price: float,
-                          order_id: str) -> None:
-        """Send a trade notification"""
-        notification = Notification(
-            type=NotificationType.TRADE,
-            message=f"Trade executed: {side} {quantity} {symbol} @ {price}",
-            timestamp=datetime.now(),
-            data={
-                "symbol": symbol,
-                "side": side,
-                "quantity": quantity,
-                "price": price,
-                "order_id": order_id
-            },
-            priority=3
+        Args:
+            subject (str): Notification subject
+            message (str): Notification message
+            level (str): Notification level ('info', 'warning', 'error')
+        """
+        # Send email notification
+        if all(self.email_config.values()):
+            self._send_email(subject, message)
+        
+        # Send webhook notification
+        if self.webhook_url:
+            self._send_webhook(subject, message, level)
+    
+    def _send_email(self, subject, message):
+        """Send email notification"""
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = self.email_config['from_email']
+            msg['To'] = self.email_config['to_email']
+            msg['Subject'] = f"[Trading Bot] {subject}"
+            
+            msg.attach(MIMEText(message, 'plain'))
+            
+            with smtplib.SMTP(
+                self.email_config['smtp_server'],
+                self.email_config['smtp_port']
+            ) as server:
+                server.starttls()
+                server.login(
+                    self.email_config['smtp_username'],
+                    self.email_config['smtp_password']
+                )
+                server.send_message(msg)
+                
+        except Exception as e:
+            print(f"Error sending email notification: {e}")
+    
+    def _send_webhook(self, subject, message, level):
+        """Send webhook notification"""
+        try:
+            payload = {
+                'subject': subject,
+                'message': message,
+                'level': level,
+                'timestamp': int(time.time() * 1000)
+            }
+            
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'}
+            )
+            
+            if response.status_code != 200:
+                print(f"Webhook notification failed: {response.text}")
+                
+        except Exception as e:
+            print(f"Error sending webhook notification: {e}")
+    
+    def send_trade_notification(self, trade):
+        """Send notification for trade execution"""
+        subject = f"Trade {trade['side']} - {trade['symbol']}"
+        message = (
+            f"Symbol: {trade['symbol']}\n"
+            f"Side: {trade['side']}\n"
+            f"Price: {trade['price']}\n"
+            f"Quantity: {trade['quantity']}\n"
+            f"Status: {trade['status']}\n"
+            f"Time: {datetime.fromtimestamp(trade['time']/1000)}"
         )
-        await self.notify(notification)
+        
+        if 'pnl' in trade:
+            message += f"\nP&L: {trade['pnl']:.2f}"
+        
+        self.send_notification(subject, message)
+    
+    def send_error_notification(self, error):
+        """Send notification for errors"""
+        subject = "Trading Bot Error"
+        message = f"An error occurred:\n{str(error)}"
+        self.send_notification(subject, message, level='error')
+    
+    def send_balance_notification(self, balance):
+        """Send notification for balance updates"""
+        subject = "Balance Update"
+        message = "Current balance:\n"
+        for asset, amount in balance.items():
+            message += f"{asset}: {amount['total']:.8f}\n"
+        
+        self.send_notification(subject, message)
 
-    async def notify_error(self, 
-                          error_message: str, 
-                          error_type: str,
-                          details: Optional[Dict] = None) -> None:
-        """Send an error notification"""
-        notification = Notification(
-            type=NotificationType.ERROR,
-            message=f"Error: {error_message}",
-            timestamp=datetime.now(),
-            data={
-                "error_type": error_type,
-                "details": details or {}
-            },
-            priority=5
-        )
-        await self.notify(notification)
+def notify_email(subject, body, to_addr):
+    # TODO: integrate SMTP or service
+    pass
 
-    async def notify_system_status(self, 
-                                 status: str,
-                                 details: Optional[Dict] = None) -> None:
-        """Send a system status notification"""
-        notification = Notification(
-            type=NotificationType.SYSTEM,
-            message=f"System Status: {status}",
-            timestamp=datetime.now(),
-            data=details or {},
-            priority=2
-        )
-        await self.notify(notification)
+def notify_push(title, message):
+    # TODO: integrate push service
+    pass
 
-    async def notify_performance(self, 
-                               metrics: Dict[str, float],
-                               symbol: Optional[str] = None) -> None:
-        """Send a performance metrics notification"""
-        notification = Notification(
-            type=NotificationType.PERFORMANCE,
-            message=f"Performance Update: {json.dumps(metrics)}",
-            timestamp=datetime.now(),
-            data={
-                "metrics": metrics,
-                "symbol": symbol
-            },
-            priority=1
-        )
-        await self.notify(notification)
-
-    async def notify_alert(self, 
-                          alert_message: str,
-                          alert_type: str,
-                          details: Optional[Dict] = None) -> None:
-        """Send an alert notification"""
-        notification = Notification(
-            type=NotificationType.ALERT,
-            message=f"Alert: {alert_message}",
-            timestamp=datetime.now(),
-            data={
-                "alert_type": alert_type,
-                "details": details or {}
-            },
-            priority=4
-        )
-        await self.notify(notification) 

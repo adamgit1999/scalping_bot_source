@@ -2,9 +2,9 @@ import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime, timedelta
 import json
-from broker.binance import BinanceBroker
-from broker.coinbase import CoinbaseBroker
-from broker.kraken import KrakenBroker
+from src.broker.binance import BinanceBroker
+from src.broker.coinbase import CoinbaseBroker
+from src.broker.kraken import KrakenBroker
 
 @pytest.fixture
 def mock_binance():

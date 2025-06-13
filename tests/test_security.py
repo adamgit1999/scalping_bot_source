@@ -1,9 +1,9 @@
 import pytest
-from app import app, db, User
+from src.app import app, db, User
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import base64
@@ -61,7 +61,7 @@ def test_jwt_token_security(app_context, test_user):
     expired_token = jwt.encode(
         {
             'user_id': test_user.id,
-            'exp': datetime.now(datetime.UTC) - timedelta(hours=1)
+            'exp': datetime.now(timezone.utc) - timedelta(hours=1)
         },
         app.config['SECRET_KEY'],
         algorithm='HS256'
@@ -176,7 +176,7 @@ def test_webhook_security(app_context, test_user):
     
     # Generate webhook signature
     payload = json.dumps({'event': 'test'})
-    timestamp = str(int(datetime.now(datetime.UTC).timestamp()))
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
     signature = hmac.new(
         test_user.api_key.encode(),
         f"{timestamp}{payload}".encode(),
@@ -197,7 +197,7 @@ def test_webhook_security(app_context, test_user):
     assert response.status_code == 401
     
     # Test expired timestamp
-    headers['X-Webhook-Timestamp'] = str(int(datetime.now(datetime.UTC).timestamp()) - 3600)
+    headers['X-Webhook-Timestamp'] = str(int(datetime.now(timezone.utc).timestamp()) - 3600)
     response = client.post('/api/webhook', data=payload, headers=headers)
     assert response.status_code == 401
 

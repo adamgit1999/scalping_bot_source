@@ -1,10 +1,16 @@
 import pytest
 import asyncio
-from app import app, db, User, Strategy, Trade
-from websocket_server import WebSocketServer
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from unittest.mock import Mock, AsyncMock, patch
+from typing import Any, Dict, List
+
+from src.app import app, db, User, Strategy, Trade
+from src.websocket_server import WebSocketServer
+from src.trading_engine import TradingEngine
+from src.notification_system import NotificationSystem
+from src.performance_monitoring import PerformanceMonitor
+from src.models import Strategy
 
 @pytest.fixture
 def app_context():
@@ -30,14 +36,52 @@ def test_user(app_context):
     return user
 
 @pytest.fixture
-def websocket_server():
-    """Create a WebSocket server instance."""
-    return WebSocketServer()
+def mock_trading_engine():
+    """Create a mock trading engine."""
+    engine = Mock(spec=TradingEngine)
+    engine.get_performance_metrics = Mock(return_value={
+        'cpu_usage': 50.0,
+        'memory_usage': 60.0,
+        'latency': 100.0
+    })
+    return engine
+
+@pytest.fixture
+def mock_notification_system():
+    """Create a mock notification system."""
+    system = Mock(spec=NotificationSystem)
+    system.send_notification = AsyncMock()
+    return system
+
+@pytest.fixture
+def mock_performance_monitor():
+    """Create a mock performance monitor."""
+    monitor = Mock(spec=PerformanceMonitor)
+    monitor.get_metrics = Mock(return_value={
+        'cpu': 50.0,
+        'memory': 60.0,
+        'latency': 100.0
+    })
+    return monitor
+
+@pytest.fixture
+def websocket_server(mock_trading_engine, mock_notification_system, mock_performance_monitor):
+    """Create a WebSocket server instance with mocked dependencies."""
+    server = WebSocketServer(
+        app=app,
+        trading_engine=mock_trading_engine
+    )
+    server.notification_system = mock_notification_system
+    server.performance_monitor = mock_performance_monitor
+    return server
 
 @pytest.fixture
 def mock_socket():
-    """Create a mock socket."""
-    return AsyncMock()
+    """Create a mock WebSocket connection."""
+    socket = AsyncMock()
+    socket.send = AsyncMock()
+    socket.close = AsyncMock()
+    return socket
 
 def test_websocket_initialization(websocket_server):
     """Test WebSocket server initialization."""
@@ -127,7 +171,7 @@ def test_market_data_broadcasting(websocket_server, mock_socket):
     
     # Test market data broadcast
     market_data = {
-        'timestamp': datetime.now(datetime.UTC).isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'symbol': 'BTC/USDT',
         'price': 50000.0,
         'volume': 100.0
@@ -155,7 +199,7 @@ def test_trade_broadcasting(websocket_server, mock_socket):
         'price': 50000.0,
         'amount': 0.1,
         'total': 5000.0,
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     websocket_server.broadcast_trade(trade)
     mock_socket.send.assert_called_once()
@@ -176,7 +220,7 @@ def test_error_broadcasting(websocket_server, mock_socket):
     error = {
         'type': 'execution_error',
         'message': 'Failed to execute trade',
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     websocket_server.broadcast_error(error)
     mock_socket.send.assert_called_once()
@@ -302,3 +346,120 @@ def test_error_handling(websocket_server, mock_socket):
     websocket_server.handle_disconnect(client_id)
     websocket_server.broadcast_message('market_data', {'type': 'test'})
     assert mock_socket.send.call_count == 1  # No additional calls after disconnect 
+
+def test_performance_broadcasting(websocket_server, mock_socket):
+    """Test performance metrics broadcasting."""
+    # Connect client and subscribe to performance updates
+    client_id = 'test_client'
+    websocket_server.handle_connect(client_id, mock_socket)
+    websocket_server.handle_subscribe(client_id, 'performance')
+    
+    # Test performance broadcast
+    performance_data = {
+        'cpu_usage': 50.0,
+        'memory_usage': 60.0,
+        'latency': 100.0,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }
+    websocket_server.broadcast_performance(performance_data)
+    mock_socket.send.assert_called_once()
+    
+    # Verify message format
+    sent_message = json.loads(mock_socket.send.call_args[0][0])
+    assert sent_message['type'] == 'performance'
+    assert sent_message['data'] == performance_data
+
+def test_bot_status_broadcasting(websocket_server, mock_socket):
+    """Test bot status broadcasting."""
+    # Connect client and subscribe to bot status
+    client_id = 'test_client'
+    websocket_server.handle_connect(client_id, mock_socket)
+    websocket_server.handle_subscribe(client_id, 'bot_status')
+    
+    # Test bot status broadcast
+    status_data = {
+        'status': 'running',
+        'active_strategies': ['scalping', 'momentum'],
+        'open_positions': 2,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }
+    websocket_server.broadcast_bot_status(status_data)
+    mock_socket.send.assert_called_once()
+    
+    # Verify message format
+    sent_message = json.loads(mock_socket.send.call_args[0][0])
+    assert sent_message['type'] == 'bot_status'
+    assert sent_message['data'] == status_data
+
+def test_notification_broadcasting(websocket_server, mock_socket):
+    """Test notification broadcasting."""
+    # Connect client and subscribe to notifications
+    client_id = 'test_client'
+    websocket_server.handle_connect(client_id, mock_socket)
+    websocket_server.handle_subscribe(client_id, 'notifications')
+    
+    # Test notification broadcast
+    notification = {
+        'type': 'trade',
+        'priority': 'high',
+        'title': 'Trade Executed',
+        'message': 'Buy order executed for BTC/USDT',
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }
+    websocket_server.broadcast_notification(notification)
+    mock_socket.send.assert_called_once()
+    
+    # Verify message format
+    sent_message = json.loads(mock_socket.send.call_args[0][0])
+    assert sent_message['type'] == 'notification'
+    assert sent_message['data'] == notification
+
+def test_connection_limits(websocket_server):
+    """Test connection limit handling."""
+    # Create maximum number of connections
+    max_connections = 100
+    sockets = [AsyncMock() for _ in range(max_connections)]
+    
+    # Connect clients up to limit
+    for i in range(max_connections):
+        client_id = f'client_{i}'
+        websocket_server.handle_connect(client_id, sockets[i])
+    
+    # Try to connect one more client
+    extra_socket = AsyncMock()
+    websocket_server.handle_connect('extra_client', extra_socket)
+    
+    # Verify connection was rejected
+    assert 'extra_client' not in websocket_server.clients
+    extra_socket.close.assert_called_once()
+
+def test_message_validation(websocket_server, mock_socket):
+    """Test message validation."""
+    # Connect client
+    client_id = 'test_client'
+    websocket_server.handle_connect(client_id, mock_socket)
+    
+    # Test valid message
+    valid_message = {
+        'type': 'subscribe',
+        'channel': 'market_data',
+        'symbol': 'BTC/USDT'
+    }
+    assert websocket_server.validate_message(valid_message) is True
+    
+    # Test invalid message
+    invalid_message = {
+        'type': 'invalid_type',
+        'data': 'invalid_data'
+    }
+    assert websocket_server.validate_message(invalid_message) is False
+
+def test_subscription_validation(websocket_server):
+    """Test subscription validation."""
+    # Test valid channels
+    valid_channels = ['market_data', 'trades', 'performance', 'bot_status', 'notifications']
+    for channel in valid_channels:
+        assert websocket_server.validate_subscription(channel) is True
+    
+    # Test invalid channel
+    assert websocket_server.validate_subscription('invalid_channel') is False 

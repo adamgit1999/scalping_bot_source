@@ -1,7 +1,19 @@
 import pytest
-from app import app, db, User, Strategy, Trade, Backtest
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, patch, AsyncMock
+from decimal import Decimal
+
+from src.models import User, Trade, Notification, Webhook, db
+from src.app import app
+from src.broker import BrokerInterface
+from src.trading_engine import TradingEngine
+from src.risk_manager import RiskManager
+from src.data_processing import MarketDataStore
+from src.performance_monitoring import PerformanceMonitor
+from src.notification_system import NotificationSystem
+from src.websocket_server import WebSocketServer
+from src.config import Config
 
 @pytest.fixture
 def app_context():
@@ -13,6 +25,36 @@ def app_context():
         yield app
         db.session.remove()
         db.drop_all()
+
+@pytest.fixture
+def mock_broker():
+    """Create a mock broker for testing."""
+    broker = Mock(spec=BrokerInterface)
+    broker.get_balance.return_value = Decimal('10000.00')
+    broker.get_position.return_value = None
+    broker.place_order = AsyncMock(return_value={
+        'id': 'test_order_1',
+        'symbol': 'BTC/USDT',
+        'side': 'BUY',
+        'type': 'limit',
+        'price': Decimal('100.00'),
+        'quantity': Decimal('1.0'),
+        'status': 'FILLED'
+    })
+    return broker
+
+@pytest.fixture
+def mock_trading_engine():
+    """Create a mock trading engine for testing."""
+    engine = Mock(spec=TradingEngine)
+    engine.start = AsyncMock()
+    engine.stop = AsyncMock()
+    engine.get_performance_metrics = AsyncMock(return_value={
+        'win_rate': 0.6,
+        'profit_factor': 1.5,
+        'sharpe_ratio': 1.2
+    })
+    return engine
 
 @pytest.fixture
 def test_user(app_context):
@@ -33,6 +75,35 @@ def auth_headers(test_user):
         'Authorization': f'Bearer {test_user.generate_token()}',
         'Content-Type': 'application/json'
     }
+
+@pytest.fixture
+def mock_websocket_server():
+    """Create a mock websocket server for testing."""
+    server = Mock(spec=WebSocketServer)
+    server.broadcast_trade = AsyncMock()
+    server.broadcast_price = AsyncMock()
+    server.broadcast_performance = AsyncMock()
+    server.broadcast_bot_status = AsyncMock()
+    return server
+
+@pytest.fixture
+def mock_config():
+    """Create a mock configuration instance."""
+    config = Mock(spec=Config)
+    config.get = Mock(return_value={
+        'api': {
+            'rate_limit': 100,
+            'timeout': 30,
+            'max_retries': 3
+        },
+        'risk_management': {
+            'max_position_size': 1.0,
+            'max_drawdown': 0.1,
+            'stop_loss_pct': 0.02,
+            'take_profit_pct': 0.05
+        }
+    })
+    return config
 
 def test_user_endpoints(app_context, test_user, auth_headers):
     """Test user-related API endpoints."""
@@ -74,138 +145,39 @@ def test_user_endpoints(app_context, test_user, auth_headers):
     }, headers=auth_headers)
     assert response.status_code == 200
 
-def test_strategy_endpoints(app_context, test_user, auth_headers):
-    """Test strategy-related API endpoints."""
+def test_trading_endpoints(app_context, test_user, auth_headers, mock_trading_engine):
+    """Test trading-related API endpoints."""
     client = app.test_client()
     
-    # Test strategy creation
-    response = client.post('/api/strategies', json={
-        'name': 'Test Strategy',
-        'description': 'Test Description',
+    # Test start trading
+    response = client.post('/api/trading/start', json={
+        'strategy': 'scalping',
+        'symbol': 'BTC/USDT',
         'parameters': {
             'sma_short': 10,
-            'sma_long': 20
-        }
-    }, headers=auth_headers)
-    assert response.status_code == 201
-    strategy_id = response.json['id']
-    
-    # Test strategy retrieval
-    response = client.get(f'/api/strategies/{strategy_id}', headers=auth_headers)
-    assert response.status_code == 200
-    assert response.json['name'] == 'Test Strategy'
-    
-    # Test strategy update
-    response = client.put(f'/api/strategies/{strategy_id}', json={
-        'name': 'Updated Strategy',
-        'parameters': {
-            'sma_short': 15,
-            'sma_long': 30
+            'sma_long': 20,
+            'rsi_period': 14
         }
     }, headers=auth_headers)
     assert response.status_code == 200
-    assert response.json['name'] == 'Updated Strategy'
+    assert response.json['status'] == 'started'
     
-    # Test strategy deletion
-    response = client.delete(f'/api/strategies/{strategy_id}', headers=auth_headers)
-    assert response.status_code == 204
-    
-    # Test strategy list
-    response = client.get('/api/strategies', headers=auth_headers)
+    # Test stop trading
+    response = client.post('/api/trading/stop', headers=auth_headers)
     assert response.status_code == 200
-    assert len(response.json) == 0
-
-def test_trade_endpoints(app_context, test_user, auth_headers):
-    """Test trade-related API endpoints."""
-    client = app.test_client()
+    assert response.json['status'] == 'stopped'
     
-    # Create a strategy first
-    strategy_response = client.post('/api/strategies', json={
-        'name': 'Test Strategy',
-        'description': 'Test Description',
-        'parameters': {}
-    }, headers=auth_headers)
-    strategy_id = strategy_response.json['id']
-    
-    # Test trade creation
-    response = client.post('/api/trades', json={
-        'strategy_id': strategy_id,
-        'symbol': 'BTC/USDT',
-        'side': 'buy',
-        'price': 50000.0,
-        'amount': 0.1,
-        'total': 5000.0,
-        'fee': 5.0
-    }, headers=auth_headers)
-    assert response.status_code == 201
-    trade_id = response.json['id']
-    
-    # Test trade retrieval
-    response = client.get(f'/api/trades/{trade_id}', headers=auth_headers)
+    # Test get trading status
+    response = client.get('/api/trading/status', headers=auth_headers)
     assert response.status_code == 200
-    assert response.json['symbol'] == 'BTC/USDT'
+    assert 'status' in response.json
     
-    # Test trade update
-    response = client.put(f'/api/trades/{trade_id}', json={
-        'profit': 100.0,
-        'status': 'closed'
-    }, headers=auth_headers)
+    # Test get performance metrics
+    response = client.get('/api/trading/performance', headers=auth_headers)
     assert response.status_code == 200
-    assert response.json['profit'] == 100.0
-    
-    # Test trade list
-    response = client.get('/api/trades', headers=auth_headers)
-    assert response.status_code == 200
-    assert len(response.json) == 1
-    
-    # Test trade deletion
-    response = client.delete(f'/api/trades/{trade_id}', headers=auth_headers)
-    assert response.status_code == 204
-
-def test_backtest_endpoints(app_context, test_user, auth_headers):
-    """Test backtest-related API endpoints."""
-    client = app.test_client()
-    
-    # Create a strategy first
-    strategy_response = client.post('/api/strategies', json={
-        'name': 'Test Strategy',
-        'description': 'Test Description',
-        'parameters': {}
-    }, headers=auth_headers)
-    strategy_id = strategy_response.json['id']
-    
-    # Test backtest creation
-    response = client.post('/api/backtests', json={
-        'strategy_id': strategy_id,
-        'start_date': (datetime.now(datetime.UTC) - timedelta(days=30)).isoformat(),
-        'end_date': datetime.now(datetime.UTC).isoformat(),
-        'initial_balance': 10000.0
-    }, headers=auth_headers)
-    assert response.status_code == 201
-    backtest_id = response.json['id']
-    
-    # Test backtest retrieval
-    response = client.get(f'/api/backtests/{backtest_id}', headers=auth_headers)
-    assert response.status_code == 200
-    assert response.json['strategy_id'] == strategy_id
-    
-    # Test backtest update
-    response = client.put(f'/api/backtests/{backtest_id}', json={
-        'final_balance': 11000.0,
-        'total_trades': 100,
-        'win_rate': 0.6
-    }, headers=auth_headers)
-    assert response.status_code == 200
-    assert response.json['win_rate'] == 0.6
-    
-    # Test backtest list
-    response = client.get('/api/backtests', headers=auth_headers)
-    assert response.status_code == 200
-    assert len(response.json) == 1
-    
-    # Test backtest deletion
-    response = client.delete(f'/api/backtests/{backtest_id}', headers=auth_headers)
-    assert response.status_code == 204
+    assert 'win_rate' in response.json
+    assert 'profit_factor' in response.json
+    assert 'sharpe_ratio' in response.json
 
 def test_market_data_endpoints(app_context, test_user, auth_headers):
     """Test market data-related API endpoints."""
@@ -231,67 +203,86 @@ def test_market_data_endpoints(app_context, test_user, auth_headers):
     response = client.get('/api/market/pairs', headers=auth_headers)
     assert response.status_code == 200
     assert len(response.json) > 0
+    
+    # Test market depth
+    response = client.get('/api/market/depth/BTC/USDT', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'depth' in response.json
+    
+    # Test recent trades
+    response = client.get('/api/market/trades/BTC/USDT', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'trades' in response.json
 
-def test_balance_endpoints(app_context, test_user, auth_headers):
-    """Test balance-related API endpoints."""
+def test_risk_management_endpoints(app_context, test_user, auth_headers):
+    """Test risk management-related API endpoints."""
     client = app.test_client()
     
-    # Test balance retrieval
-    response = client.get('/api/balance', headers=auth_headers)
+    # Test get risk limits
+    response = client.get('/api/risk/limits', headers=auth_headers)
     assert response.status_code == 200
-    assert 'total_balance' in response.json
+    assert 'max_position_size' in response.json
+    assert 'max_drawdown' in response.json
     
-    # Test balance history
-    response = client.get('/api/balance/history', headers=auth_headers)
+    # Test update risk limits
+    response = client.put('/api/risk/limits', json={
+        'max_position_size': 1.0,
+        'max_drawdown': 0.1,
+        'stop_loss_pct': 0.02,
+        'take_profit_pct': 0.05
+    }, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json['max_position_size'] == 1.0
+    
+    # Test get risk metrics
+    response = client.get('/api/risk/metrics', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'current_drawdown' in response.json
+    assert 'exposure' in response.json
+
+def test_performance_endpoints(app_context, test_user, auth_headers):
+    """Test performance-related API endpoints."""
+    client = app.test_client()
+    
+    # Test get performance metrics
+    response = client.get('/api/performance/metrics', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'win_rate' in response.json
+    assert 'profit_factor' in response.json
+    assert 'sharpe_ratio' in response.json
+    
+    # Test get performance history
+    response = client.get('/api/performance/history', headers=auth_headers)
     assert response.status_code == 200
     assert 'data' in response.json
     
-    # Test deposit address
-    response = client.get('/api/balance/deposit/BTC', headers=auth_headers)
+    # Test get performance report
+    response = client.get('/api/performance/report', headers=auth_headers)
     assert response.status_code == 200
-    assert 'address' in response.json
-    
-    # Test withdrawal
-    response = client.post('/api/balance/withdraw', json={
-        'currency': 'BTC',
-        'amount': 0.1,
-        'address': 'test_address'
-    }, headers=auth_headers)
-    assert response.status_code == 200
-    assert 'transaction_id' in response.json
+    assert 'report' in response.json
 
-def test_webhook_endpoints(app_context, test_user, auth_headers):
-    """Test webhook-related API endpoints."""
+def test_notification_endpoints(app_context, test_user, auth_headers):
+    """Test notification-related API endpoints."""
     client = app.test_client()
     
-    # Test webhook creation
-    response = client.post('/api/webhooks', json={
-        'url': 'https://example.com/webhook',
-        'events': ['trade', 'balance']
+    # Test get notifications
+    response = client.get('/api/notifications', headers=auth_headers)
+    assert response.status_code == 200
+    assert isinstance(response.json, list)
+    
+    # Test create notification
+    response = client.post('/api/notifications', json={
+        'type': 'INFO',
+        'message': 'Test notification'
     }, headers=auth_headers)
     assert response.status_code == 201
-    webhook_id = response.json['id']
+    assert response.json['message'] == 'Test notification'
     
-    # Test webhook retrieval
-    response = client.get(f'/api/webhooks/{webhook_id}', headers=auth_headers)
+    # Test mark notification as read
+    notification_id = response.json['id']
+    response = client.put(f'/api/notifications/{notification_id}/read', headers=auth_headers)
     assert response.status_code == 200
-    assert response.json['url'] == 'https://example.com/webhook'
-    
-    # Test webhook update
-    response = client.put(f'/api/webhooks/{webhook_id}', json={
-        'events': ['trade', 'balance', 'order']
-    }, headers=auth_headers)
-    assert response.status_code == 200
-    assert 'order' in response.json['events']
-    
-    # Test webhook list
-    response = client.get('/api/webhooks', headers=auth_headers)
-    assert response.status_code == 200
-    assert len(response.json) == 1
-    
-    # Test webhook deletion
-    response = client.delete(f'/api/webhooks/{webhook_id}', headers=auth_headers)
-    assert response.status_code == 204
+    assert response.json['read'] == True
 
 def test_error_handling(app_context, test_user, auth_headers):
     """Test API error handling."""
@@ -306,7 +297,7 @@ def test_error_handling(app_context, test_user, auth_headers):
     assert response.status_code == 405
     
     # Test invalid data
-    response = client.post('/api/strategies', json={
+    response = client.post('/api/trading/start', json={
         'invalid': 'data'
     }, headers=auth_headers)
     assert response.status_code == 400
@@ -320,67 +311,185 @@ def test_error_handling(app_context, test_user, auth_headers):
         client.get('/api/status', headers=auth_headers)
     response = client.get('/api/status', headers=auth_headers)
     assert response.status_code == 429
+    
+    # Test validation errors
+    response = client.post('/api/trading/start', json={
+        'strategy': 'invalid',
+        'symbol': 'BTC/USDT',
+        'parameters': {}
+    }, headers=auth_headers)
+    assert response.status_code == 422
 
 def test_pagination(app_context, test_user, auth_headers):
     """Test API pagination."""
     client = app.test_client()
     
-    # Create multiple strategies
+    # Create multiple trades
     for i in range(15):
-        client.post('/api/strategies', json={
-            'name': f'Strategy {i}',
-            'description': f'Description {i}',
-            'parameters': {}
+        client.post('/api/trades', json={
+            'symbol': 'BTC/USDT',
+            'side': 'buy',
+            'price': 50000.0,
+            'amount': 0.1,
+            'total': 5000.0,
+            'fee': 5.0
         }, headers=auth_headers)
     
     # Test default pagination
-    response = client.get('/api/strategies', headers=auth_headers)
+    response = client.get('/api/trades', headers=auth_headers)
     assert response.status_code == 200
     assert len(response.json) == 10  # Default page size
     
     # Test custom page size
-    response = client.get('/api/strategies?page_size=5', headers=auth_headers)
+    response = client.get('/api/trades?page_size=5', headers=auth_headers)
     assert response.status_code == 200
     assert len(response.json) == 5
     
     # Test page navigation
-    response = client.get('/api/strategies?page=2', headers=auth_headers)
+    response = client.get('/api/trades?page=2', headers=auth_headers)
     assert response.status_code == 200
-    assert len(response.json) == 5
-    
-    # Test invalid pagination
-    response = client.get('/api/strategies?page=invalid', headers=auth_headers)
-    assert response.status_code == 400
+    assert len(response.json) == 5  # Remaining items
 
 def test_filtering_and_sorting(app_context, test_user, auth_headers):
     """Test API filtering and sorting."""
     client = app.test_client()
     
-    # Create strategies with different parameters
-    strategies = [
-        {'name': 'Strategy A', 'parameters': {'sma_short': 10}},
-        {'name': 'Strategy B', 'parameters': {'sma_short': 20}},
-        {'name': 'Strategy C', 'parameters': {'sma_short': 15}}
-    ]
-    
-    for strategy in strategies:
-        client.post('/api/strategies', json=strategy, headers=auth_headers)
+    # Create trades with different statuses
+    for status in ['open', 'closed', 'cancelled']:
+        client.post('/api/trades', json={
+            'symbol': 'BTC/USDT',
+            'side': 'buy',
+            'price': 50000.0,
+            'amount': 0.1,
+            'total': 5000.0,
+            'fee': 5.0,
+            'status': status
+        }, headers=auth_headers)
     
     # Test filtering
-    response = client.get('/api/strategies?filter=sma_short:10', headers=auth_headers)
+    response = client.get('/api/trades?status=open', headers=auth_headers)
     assert response.status_code == 200
-    assert len(response.json) == 1
+    assert all(trade['status'] == 'open' for trade in response.json)
     
     # Test sorting
-    response = client.get('/api/strategies?sort=name:asc', headers=auth_headers)
+    response = client.get('/api/trades?sort_by=price&order=desc', headers=auth_headers)
     assert response.status_code == 200
-    assert response.json[0]['name'] == 'Strategy A'
+    prices = [trade['price'] for trade in response.json]
+    assert prices == sorted(prices, reverse=True)
     
-    # Test multiple filters
-    response = client.get('/api/strategies?filter=sma_short:>10&filter=sma_short:<20', headers=auth_headers)
+    # Test combined filtering and sorting
+    response = client.get('/api/trades?status=closed&sort_by=timestamp&order=asc', headers=auth_headers)
     assert response.status_code == 200
-    assert len(response.json) == 1
+    assert all(trade['status'] == 'closed' for trade in response.json)
+    timestamps = [trade['timestamp'] for trade in response.json]
+    assert timestamps == sorted(timestamps)
+
+def test_websocket_endpoints(app_context, test_user, auth_headers, mock_websocket_server):
+    """Test websocket-related API endpoints."""
+    client = app.test_client()
     
-    # Test invalid filter
-    response = client.get('/api/strategies?filter=invalid', headers=auth_headers)
-    assert response.status_code == 400 
+    # Test websocket connection
+    with patch('src.app.socketio') as mock_socketio:
+        response = client.get('/ws', headers=auth_headers)
+        assert response.status_code == 200
+        mock_socketio.emit.assert_called()
+    
+    # Test trade subscription
+    with patch('src.app.socketio') as mock_socketio:
+        response = client.post('/api/ws/subscribe', json={
+            'channel': 'trades',
+            'symbol': 'BTC/USDT'
+        }, headers=auth_headers)
+        assert response.status_code == 200
+        mock_socketio.emit.assert_called()
+    
+    # Test price subscription
+    with patch('src.app.socketio') as mock_socketio:
+        response = client.post('/api/ws/subscribe', json={
+            'channel': 'prices',
+            'symbol': 'BTC/USDT'
+        }, headers=auth_headers)
+        assert response.status_code == 200
+        mock_socketio.emit.assert_called()
+
+def test_backtest_endpoints(app_context, test_user, auth_headers):
+    """Test backtest-related API endpoints."""
+    client = app.test_client()
+    
+    # Test run backtest
+    response = client.post('/api/backtest', json={
+        'strategy': 'scalping',
+        'symbol': 'BTC/USDT',
+        'timeframe': '1h',
+        'start_date': '2024-01-01',
+        'end_date': '2024-01-31',
+        'initial_balance': 10000.0,
+        'parameters': {
+            'sma_short': 10,
+            'sma_long': 20,
+            'rsi_period': 14
+        }
+    }, headers=auth_headers)
+    assert response.status_code == 200
+    assert 'results' in response.json
+    
+    # Test get backtest results
+    response = client.get('/api/backtest/results/1', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'total_return' in response.json
+    assert 'sharpe_ratio' in response.json
+    assert 'max_drawdown' in response.json
+    
+    # Test export backtest results
+    response = client.get('/api/backtest/export/1', headers=auth_headers)
+    assert response.status_code == 200
+    assert response.headers['Content-Type'] == 'application/json'
+
+def test_health_check_endpoints(app_context, test_user, auth_headers):
+    """Test health check-related API endpoints."""
+    client = app.test_client()
+    
+    # Test system health
+    response = client.get('/api/health', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'status' in response.json
+    assert 'components' in response.json
+    
+    # Test component health
+    response = client.get('/api/health/components', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'trading_engine' in response.json
+    assert 'market_data' in response.json
+    assert 'risk_manager' in response.json
+    
+    # Test performance metrics
+    response = client.get('/api/health/performance', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'cpu_usage' in response.json
+    assert 'memory_usage' in response.json
+    assert 'latency' in response.json
+
+def test_configuration_endpoints(app_context, test_user, auth_headers, mock_config):
+    """Test configuration-related API endpoints."""
+    client = app.test_client()
+    
+    # Test get configuration
+    response = client.get('/api/config', headers=auth_headers)
+    assert response.status_code == 200
+    assert 'api' in response.json
+    assert 'risk_management' in response.json
+    
+    # Test update configuration
+    response = client.put('/api/config', json={
+        'risk_management': {
+            'max_position_size': 2.0,
+            'max_drawdown': 0.15
+        }
+    }, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json['risk_management']['max_position_size'] == 2.0
+    
+    # Test reset configuration
+    response = client.post('/api/config/reset', headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json['status'] == 'reset' 

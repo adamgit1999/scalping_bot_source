@@ -6,8 +6,8 @@ import ssl
 from datetime import datetime, timezone, timedelta
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 import websockets.client
-from network.websocket_manager import WebSocketManager, WebSocketConfig
-from network.exceptions import WebSocketError, ConnectionError, MessageError
+from src.network.websocket_manager import WebSocketManager, WebSocketConfig
+from src.network.exceptions import WebSocketError, ConnectionError, MessageError
 
 @pytest.fixture
 def config():
@@ -112,7 +112,8 @@ async def test_disconnect_error(manager, mock_websocket):
     with pytest.raises(WebSocketError, match="Error during disconnection"):
         await manager.disconnect()
 
-def test_handle_message(manager):
+@pytest.mark.asyncio
+async def test_handle_message(manager):
     """Test message handling."""
     # Test latency measurement
     message = {'timestamp': time.time() - 0.1}
@@ -354,4 +355,29 @@ async def test_message_processing_error(manager, mock_websocket):
     with patch.object(manager, '_handle_reconnect') as mock_reconnect:
         await manager._process_messages()
         assert not manager.connected
-        mock_reconnect.assert_called_once() 
+        mock_reconnect.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_reconnect(manager, mock_websocket):
+    """Test reconnection mechanism."""
+    with patch('websockets.connect', return_value=mock_websocket):
+        await manager._handle_reconnect()
+        assert manager.connection == mock_websocket
+        assert manager.connected
+
+@pytest.mark.asyncio
+async def test_error_handling(manager):
+    """Test error handling."""
+    # Test connection error
+    with pytest.raises(ConnectionError):
+        await manager.connect()
+    
+    # Test message error
+    with pytest.raises(MessageError):
+        manager._handle_message("invalid_message")
+    
+    # Test websocket error
+    manager.connection = Mock()
+    manager.connection.send = AsyncMock(side_effect=Exception("WebSocket error"))
+    with pytest.raises(WebSocketError):
+        await manager.send_message({"type": "test"}) 

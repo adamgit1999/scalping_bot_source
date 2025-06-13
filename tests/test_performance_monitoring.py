@@ -1,9 +1,17 @@
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 import time
 from datetime import datetime, timedelta
 import psutil
 import os
+from decimal import Decimal
+from typing import Dict, List, Any, Optional
+import asyncio
+
+from src.performance.optimizer import PerformanceOptimizer, PerformanceMetrics
+from src.trading_engine import TradingEngine
+from src.websocket_server import WebSocketServer
+from src.notification_system import NotificationSystem
 
 class PerformanceMonitor:
     """System for monitoring application performance."""
@@ -262,3 +270,36 @@ def test_metric_cleanup(performance_monitor):
     metrics = performance_monitor.get_metric('response_time', window=0.05)
     assert len(metrics) == 1
     assert metrics[0][1] == 0.2  # Should only get the newer metric 
+
+@pytest.fixture
+def mock_trading_engine():
+    """Create a mock trading engine."""
+    engine = Mock(spec=TradingEngine)
+    engine.get_performance_metrics = Mock(return_value={
+        'cpu_usage': 50.0,
+        'memory_usage': 60.0,
+        'latency': 100.0
+    })
+    return engine
+
+@pytest.fixture
+def mock_websocket_server():
+    """Create a mock websocket server."""
+    server = Mock(spec=WebSocketServer)
+    server.broadcast_performance = AsyncMock()
+    return server
+
+@pytest.fixture
+def mock_notification_system():
+    """Create a mock notification system."""
+    system = Mock(spec=NotificationSystem)
+    system.send_notification = AsyncMock()
+    return system
+
+@pytest.fixture
+def performance_optimizer(mock_trading_engine, mock_websocket_server, mock_notification_system):
+    """Create a performance optimizer instance with mocked dependencies."""
+    optimizer = PerformanceOptimizer()
+    optimizer.trading_engine = mock_trading_engine
+    optimizer.websocket_server = mock_websocket_server
+    optimizer.notification_system = mock_notification_system

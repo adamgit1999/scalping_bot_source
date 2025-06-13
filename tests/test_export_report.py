@@ -1,5 +1,5 @@
 import pytest
-from export_report import ExportReport
+from src.export_report import ExportReport
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta

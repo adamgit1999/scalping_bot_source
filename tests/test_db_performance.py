@@ -1,9 +1,10 @@
 import pytest
-from app import app, db, User, Strategy, Trade
+from src.app import app, db, User, Strategy, Trade
 from datetime import datetime, timedelta, timezone
 import time
 import random
 from sqlalchemy import func
+from src.models import Strategy
 
 @pytest.fixture
 def app_context():

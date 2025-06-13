@@ -4,15 +4,58 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
-from notification.notification_system import (
+from typing import Any, Dict, List, Optional
+
+from src.notification_system import (
     NotificationSystem, NotificationType, NotificationPriority,
     NotificationChannel, NotificationError, ValidationError, DeliveryError
 )
+from src.websocket_server import WebSocketServer
+from src.trading_engine import TradingEngine
+from src.performance_monitoring import PerformanceMonitor
+
+@pytest.fixture
+def mock_trading_engine():
+    """Create a mock trading engine."""
+    engine = Mock(spec=TradingEngine)
+    engine.get_performance_metrics = Mock(return_value={
+        'cpu_usage': 50.0,
+        'memory_usage': 60.0,
+        'latency': 100.0
+    })
+    return engine
+
+@pytest.fixture
+def mock_websocket_server():
+    """Create a mock websocket server."""
+    server = Mock(spec=WebSocketServer)
+    server.broadcast_notification = AsyncMock()
+    return server
+
+@pytest.fixture
+def mock_performance_monitor():
+    """Create a mock performance monitor."""
+    monitor = Mock(spec=PerformanceMonitor)
+    monitor.get_metrics = Mock(return_value={
+        'cpu': 50.0,
+        'memory': 60.0,
+        'latency': 100.0
+    })
+    return monitor
+
+@pytest.fixture
+def notification_system(mock_trading_engine, mock_websocket_server, mock_performance_monitor):
+    """Create a notification system instance with mocked dependencies."""
+    system = NotificationSystem()
+    system.trading_engine = mock_trading_engine
+    system.websocket_server = mock_websocket_server
+    system.performance_monitor = mock_performance_monitor
+    return system
 
 @pytest.fixture
 def notification_system():
     """Create a notification system instance."""
-    return NotificationSystem()
+    return NotificationSystem(app)
 
 @pytest.fixture
 def mock_websocket():
@@ -545,3 +588,133 @@ async def test_notification_data_handling(notification_system):
         return obj
     expected_data = stringify_decimals(complex_data)
     assert deserialized['data'] == expected_data 
+
+@pytest.mark.asyncio
+async def test_trade_notification(notification_system, sample_trade):
+    """Test trade notification handling."""
+    # Send trade notification
+    await notification_system.send_trade_notification(
+        user_email='user@example.com',
+        trade_data=sample_trade
+    )
+    
+    # Verify notification was sent
+    assert len(notification_system.notifications) == 1
+    notification = notification_system.notifications[0]
+    assert notification['type'] == NotificationType.TRADE
+    assert notification['priority'] == NotificationPriority.HIGH
+    assert 'BTC/USDT' in notification['title']
+    assert notification['channels'] == [NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET]
+
+@pytest.mark.asyncio
+async def test_error_notification(notification_system):
+    """Test error notification handling."""
+    error_data = {
+        'type': 'execution_error',
+        'message': 'Failed to execute trade',
+        'details': {
+            'symbol': 'BTC/USDT',
+            'order_id': '12345',
+            'error_code': 'INSUFFICIENT_BALANCE'
+        }
+    }
+    
+    # Send error notification
+    await notification_system.send_error_notification(
+        user_email='user@example.com',
+        error_data=error_data
+    )
+    
+    # Verify notification was sent
+    assert len(notification_system.notifications) == 1
+    notification = notification_system.notifications[0]
+    assert notification['type'] == NotificationType.ERROR
+    assert notification['priority'] == NotificationPriority.CRITICAL
+    assert 'Error' in notification['title']
+    assert notification['channels'] == [NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET]
+
+@pytest.mark.asyncio
+async def test_performance_notification(notification_system, sample_performance):
+    """Test performance notification handling."""
+    # Send performance notification
+    await notification_system.send_performance_notification(
+        user_email='user@example.com',
+        performance_data=sample_performance
+    )
+    
+    # Verify notification was sent
+    assert len(notification_system.notifications) == 1
+    notification = notification_system.notifications[0]
+    assert notification['type'] == NotificationType.PERFORMANCE
+    assert notification['priority'] == NotificationPriority.MEDIUM
+    assert 'Performance' in notification['title']
+    assert notification['channels'] == [NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET]
+
+@pytest.mark.asyncio
+async def test_system_notification(notification_system):
+    """Test system notification handling."""
+    system_data = {
+        'type': 'system_update',
+        'message': 'System maintenance scheduled',
+        'details': {
+            'start_time': datetime.now(timezone.utc).isoformat(),
+            'duration': '2 hours',
+            'affected_services': ['trading', 'market_data']
+        }
+    }
+    
+    # Send system notification
+    await notification_system.send_system_notification(
+        user_email='user@example.com',
+        system_data=system_data
+    )
+    
+    # Verify notification was sent
+    assert len(notification_system.notifications) == 1
+    notification = notification_system.notifications[0]
+    assert notification['type'] == NotificationType.SYSTEM
+    assert notification['priority'] == NotificationPriority.HIGH
+    assert 'System' in notification['title']
+    assert notification['channels'] == [NotificationChannel.EMAIL, NotificationChannel.WEBSOCKET]
+
+@pytest.mark.asyncio
+async def test_notification_rate_limiting(notification_system, sample_notification):
+    """Test notification rate limiting."""
+    # Send notifications up to rate limit
+    for _ in range(notification_system.rate_limit):
+        notification_system.add_notification(**sample_notification)
+    
+    # Try to send one more notification
+    with pytest.raises(DeliveryError, match="Rate limit exceeded"):
+        notification_system.add_notification(**sample_notification)
+
+@pytest.mark.asyncio
+async def test_notification_retry_mechanism(notification_system, mock_websocket_server, sample_notification):
+    """Test notification retry mechanism."""
+    # Configure websocket server to fail twice then succeed
+    mock_websocket_server.broadcast_notification.side_effect = [
+        DeliveryError("Failed to send"),
+        DeliveryError("Failed to send"),
+        None
+    ]
+    
+    # Send notification
+    notification_system.add_notification(**sample_notification)
+    await asyncio.sleep(0.1)  # Give time for retries
+    
+    # Verify retry attempts
+    assert mock_websocket_server.broadcast_notification.call_count == 3
+
+@pytest.mark.asyncio
+async def test_notification_batching(notification_system, sample_notification):
+    """Test notification batching."""
+    # Send multiple notifications
+    for i in range(notification_system.batch_size + 1):
+        notification = sample_notification.copy()
+        notification['title'] = f"Notification {i}"
+        notification_system.add_notification(**notification)
+    
+    await asyncio.sleep(0.1)  # Give time for batch processing
+    
+    # Verify notifications were batched
+    assert len(notification_system.notifications) == notification_system.batch_size + 1 

@@ -1,6 +1,6 @@
 import pytest
 from decimal import Decimal
-from broker.broker import Broker, Order
+from src.broker.broker import Broker, Order
 
 @pytest.fixture
 def broker():
@@ -68,9 +68,10 @@ def test_balance_management(broker):
 def test_multiple_orders(broker):
     # Place multiple orders
     order_ids = []
-    for i in range(3):
+    symbols = ["BTC/USD", "ETH/USD", "LTC/USD"]
+    for i, symbol in enumerate(symbols):
         order_id = broker.place_order(
-            symbol=f"SYMBOL{i}",
+            symbol=symbol,
             quantity=Decimal(str(i + 1)),
             price=Decimal(str(100 * (i + 1))),
             order_type="LIMIT"
@@ -80,6 +81,6 @@ def test_multiple_orders(broker):
     # Verify all orders were placed
     assert len(broker.orders) == 3
     for i, order_id in enumerate(order_ids):
-        assert broker.orders[order_id].symbol == f"SYMBOL{i}"
+        assert broker.orders[order_id].symbol == symbols[i]
         assert broker.orders[order_id].quantity == Decimal(str(i + 1))
         assert broker.orders[order_id].price == Decimal(str(100 * (i + 1))) 

@@ -1,5 +1,5 @@
 import pytest
-from indicators import (
+from src.indicators import (
     calculateSMA,
     calculateEMA,
     calculateRSI,

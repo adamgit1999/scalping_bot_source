@@ -2,7 +2,7 @@ import pytest
 from PIL import Image
 import os
 import tempfile
-from utils.qr_generator import QRGenerator
+from src.utils.qr_generator import QRGenerator
 from qrcode.constants import ERROR_CORRECT_L, ERROR_CORRECT_M, ERROR_CORRECT_Q, ERROR_CORRECT_H
 
 @pytest.fixture

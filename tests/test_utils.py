@@ -1,6 +1,6 @@
 import pytest
-from app import db, init_db
-from config import Config
+from src.app import db, init_db
+from src.config import Config
 from datetime import datetime, timedelta
 import os
 import json
@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 @pytest.fixture
 def app():
     """Create a Flask app for testing."""
-    from app import app
+    from src.app import app
     app.config['TESTING'] = True
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
     return app
@@ -43,7 +43,7 @@ def test_config_loading(test_config):
     
     # Load config
     config = Config()
-    config.load_config('test_config.json')
+    config.load_config()
     
     # Verify config values
     assert config.DATABASE == test_config['DATABASE']
@@ -65,7 +65,7 @@ def test_password_hashing():
 
 def test_api_key_generation():
     """Test API key generation."""
-    from app import generate_api_key
+    from src.app import generate_api_key
     
     api_key = generate_api_key()
     assert isinstance(api_key, str)
@@ -74,7 +74,7 @@ def test_api_key_generation():
 
 def test_token_generation():
     """Test JWT token generation and validation."""
-    from app import generate_token, validate_token
+    from src.app import generate_token, validate_token
     
     user_id = 1
     token = generate_token(user_id)
@@ -86,7 +86,7 @@ def test_token_generation():
 
 def test_date_parsing():
     """Test date parsing utilities."""
-    from app import parse_date, format_date
+    from src.app import parse_date, format_date
     
     # Test parsing
     date_str = '2024-01-01T00:00:00Z'
@@ -100,7 +100,7 @@ def test_date_parsing():
 
 def test_number_formatting():
     """Test number formatting utilities."""
-    from app import format_number, format_currency, format_percentage
+    from src.app import format_number, format_currency, format_percentage
     
     # Test number formatting
     assert format_number(1234.5678) == '1,234.57'
@@ -116,7 +116,7 @@ def test_number_formatting():
 
 def test_error_handling():
     """Test error handling utilities."""
-    from app import handle_error, APIError
+    from src.app import handle_error, APIError
     
     # Test API error
     with pytest.raises(APIError) as exc_info:
@@ -126,7 +126,7 @@ def test_error_handling():
 
 def test_validation():
     """Test input validation utilities."""
-    from app import validate_strategy, validate_trade
+    from src.app import validate_strategy, validate_trade
     
     # Test strategy validation
     valid_strategy = {
@@ -164,7 +164,7 @@ def test_validation():
 
 def test_file_operations():
     """Test file operation utilities."""
-    from app import save_file, load_file, delete_file
+    from src.app import save_file, load_file, delete_file
     
     # Test file saving
     test_data = {'key': 'value'}
@@ -182,7 +182,7 @@ def test_file_operations():
 
 def test_logging():
     """Test logging utilities."""
-    from app import setup_logger, log_trade, log_error
+    from src.app import setup_logger, log_trade, log_error
     
     # Setup logger
     logger = setup_logger('test_logger')
@@ -206,7 +206,7 @@ def test_logging():
 
 def test_cache_operations():
     """Test cache operation utilities."""
-    from app import cache_set, cache_get, cache_delete
+    from src.app import cache_set, cache_get, cache_delete
     
     # Test cache setting
     cache_set('test_key', 'test_value')
@@ -218,7 +218,7 @@ def test_cache_operations():
 
 def test_rate_limiting():
     """Test rate limiting utilities."""
-    from app import check_rate_limit, reset_rate_limit
+    from src.app import check_rate_limit, reset_rate_limit
     
     # Test rate limiting
     for _ in range(100):

@@ -2,6 +2,7 @@ import ccxt
 import pandas as pd
 from datetime import datetime, UTC
 from typing import Dict, List, Optional
+from decimal import Decimal
 
 class MockExchange(ccxt.Exchange):
     def __init__(self):
@@ -43,6 +44,7 @@ class MockExchange(ccxt.Exchange):
             'BTC/USDT': {'last': 50000, 'bid': 49900, 'ask': 50100},
             'ETH/USDT': {'last': 3000, 'bid': 2990, 'ask': 3010}
         }
+        self.quote_currency = 'USDT'  # Add quote currency for balance checks
 
     async def load_markets(self, reload=False):
         return self.markets
@@ -56,6 +58,21 @@ class MockExchange(ccxt.Exchange):
         return self.balances[currency]
 
     async def create_order(self, symbol: str, type: str, side: str, amount: float, price: Optional[float] = None):
+        # Validate inputs
+        if side.lower() not in ['buy', 'sell']:
+            raise ValueError(f"Invalid order side: {side}")
+        if amount <= 0:
+            raise ValueError(f"Invalid amount: {amount}")
+        if price is not None and price <= 0:
+            raise ValueError(f"Invalid price: {price}")
+        
+        # Check if we have sufficient funds
+        if side.lower() == 'buy':
+            required_funds = price * amount
+            balance = self.balances[self.quote_currency]['free']
+            if balance < required_funds:
+                raise Exception("Insufficient funds")
+        
         order_id = str(len(self.orders) + 1)
         order = {
             'id': order_id,
@@ -65,7 +82,10 @@ class MockExchange(ccxt.Exchange):
             'amount': amount,
             'price': price,
             'status': 'open',
-            'timestamp': datetime.now(UTC).timestamp()
+            'timestamp': datetime.now(UTC).timestamp(),
+            'filled': 0,
+            'remaining': amount,
+            'cost': price * amount if price else 0
         }
         self.orders[order_id] = order
         return order

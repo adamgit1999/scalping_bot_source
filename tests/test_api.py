@@ -1,7 +1,7 @@
 import pytest
-from app import app, db, User, Strategy, Trade
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timezone, timedelta
+from src.models import User, Trade, Notification, Webhook, db
 
 @pytest.fixture
 def client():
@@ -16,10 +16,11 @@ def client():
             db.drop_all()
 
 @pytest.fixture
-def auth_headers():
+def auth_headers(test_user):
     """Create authentication headers."""
     return {
-        'Authorization': 'Bearer test_token'
+        'Authorization': f'Bearer {test_user.generate_token()}',
+        'Content-Type': 'application/json'
     }
 
 @pytest.fixture
@@ -62,10 +63,9 @@ def test_api_trades(client, auth_headers, test_user):
         side='buy',
         price=50000.0,
         amount=0.1,
-        total=5000.0,
         fee=5.0,
         profit=100.0,
-        timestamp=datetime.now(datetime.UTC)
+        timestamp=datetime.now(timezone.utc)
     )
     db.session.add(trade)
     db.session.commit()
@@ -202,8 +202,8 @@ def test_api_backtest(client, auth_headers, test_user):
     
     backtest_data = {
         'strategy_id': strategy.id,
-        'start_date': datetime.now(datetime.UTC).isoformat(),
-        'end_date': (datetime.now(datetime.UTC) + timedelta(days=30)).isoformat(),
+        'start_date': datetime.now(timezone.utc).isoformat(),
+        'end_date': (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
         'initial_balance': 10000.0
     }
     

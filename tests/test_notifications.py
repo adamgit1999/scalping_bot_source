@@ -1,7 +1,7 @@
 import pytest
-from app import app, db, User, Notification
-from notification_system import NotificationSystem
-from datetime import datetime, timedelta
+from src.app import app, db, User, Notification
+from src.notification.notification_system import NotificationSystem
+from datetime import datetime, timedelta, timezone
 import json
 from unittest.mock import Mock, patch
 
@@ -58,7 +58,7 @@ def test_trade_notification(notification_system, test_user):
         'total': 5000.0,
         'fee': 5.0,
         'profit': 100.0,
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send trade notification
@@ -80,7 +80,7 @@ def test_error_notification(notification_system, test_user):
     error = {
         'type': 'execution_error',
         'message': 'Failed to execute trade',
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send error notification
@@ -99,7 +99,7 @@ def test_daily_report(notification_system, test_user):
     """Test daily report sending."""
     # Create report data
     report = {
-        'date': datetime.now(datetime.UTC).date().isoformat(),
+        'date': datetime.now(timezone.utc).date().isoformat(),
         'total_trades': 10,
         'win_rate': 0.6,
         'total_profit': 1000.0,
@@ -134,7 +134,7 @@ def test_balance_notification(notification_system, test_user):
         'total_balance': 10000.0,
         'available_balance': 9000.0,
         'locked_balance': 1000.0,
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send balance notification
@@ -160,7 +160,7 @@ def test_strategy_notification(notification_system, test_user):
             'win_rate': 0.6,
             'profit_factor': 1.5
         },
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send strategy notification
@@ -186,7 +186,7 @@ def test_system_notification(notification_system, test_user):
             'memory_usage': 85,
             'cpu_usage': 70
         },
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send system notification
@@ -220,7 +220,7 @@ def test_password_reset_notification(notification_system, test_user):
     # Create reset data
     reset_data = {
         'reset_token': 'test_token',
-        'expires_at': (datetime.now(datetime.UTC) + timedelta(hours=1)).isoformat()
+        'expires_at': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     }
     
     # Send password reset notification
@@ -240,7 +240,7 @@ def test_verification_notification(notification_system, test_user):
     # Create verification data
     verification_data = {
         'verification_token': 'test_token',
-        'expires_at': (datetime.now(datetime.UTC) + timedelta(hours=24)).isoformat()
+        'expires_at': (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
     }
     
     # Send verification notification
@@ -260,8 +260,8 @@ def test_backtest_notification(notification_system, test_user):
     # Create backtest data
     backtest = {
         'strategy_name': 'Test Strategy',
-        'start_date': (datetime.now(datetime.UTC) - timedelta(days=30)).isoformat(),
-        'end_date': datetime.now(datetime.UTC).isoformat(),
+        'start_date': (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
+        'end_date': datetime.now(timezone.utc).isoformat(),
         'results': {
             'total_trades': 100,
             'win_rate': 0.6,
@@ -315,7 +315,7 @@ def test_market_notification(notification_system, test_user):
         'price': 50000.0,
         'change_24h': 0.05,
         'volume_24h': 1000000.0,
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send market notification
@@ -342,7 +342,7 @@ def test_risk_notification(notification_system, test_user):
             'var_95': 0.02,
             'max_drawdown': 0.1
         },
-        'timestamp': datetime.now(datetime.UTC).isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     # Send risk notification

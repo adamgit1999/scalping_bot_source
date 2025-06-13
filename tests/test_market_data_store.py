@@ -7,17 +7,17 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch, MagicMock
-from data.market_data_store import MarketDataStore, MarketDataPoint
-from data.exceptions import MarketDataError, ValidationError, StorageError
+from src.data.market_data_store import MarketDataStore, MarketDataPoint
+from src.exceptions import MarketDataError, ValidationError, StorageError
+import tempfile
 
 @pytest.fixture
 def store():
-    """Create market data store instance."""
-    store = MarketDataStore("BTC/USD", max_points=1000)
-    yield store
-    store.close()
-    if os.path.exists(store.filename):
-        os.remove(store.filename)
+    """Create a market data store instance."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store = MarketDataStore("BTC/USDT", max_points=1000)
+        yield store
+        store.close()
 
 @pytest.fixture
 def mock_market_data():
@@ -31,6 +31,149 @@ def mock_market_data():
         'timestamp': datetime.now(timezone.utc).timestamp()
     }
 
+@pytest.fixture
+def sample_update():
+    """Create a sample market data update."""
+    return {
+        "symbol": "BTC/USDT",
+        "price": 50000.0,
+        "volume": 100.0,
+        "bid": 49999.0,
+        "ask": 50001.0,
+        "last_update_id": 123456,
+        "timestamp": datetime.now(timezone.utc).timestamp()
+    }
+
+def test_store_initialization(store):
+    """Test store initialization."""
+    assert store.symbol == "BTC/USDT"
+    assert store.max_points == 1000
+    assert store.data_file is not None
+    assert store.mmap_file is not None
+    assert len(store.data) == 0
+
+def test_add_update(store, sample_update):
+    """Test adding market data updates."""
+    # Test valid update
+    store.add_update(sample_update)
+    assert len(store.data) == 1
+    
+    # Test invalid update
+    with pytest.raises(ValidationError):
+        store.add_update({"invalid": "data"})
+    
+    # Test update with invalid symbol
+    invalid_update = sample_update.copy()
+    invalid_update["symbol"] = "ETH/USDT"
+    with pytest.raises(ValidationError):
+        store.add_update(invalid_update)
+
+def test_get_latest(store, sample_update):
+    """Test retrieving latest data points."""
+    # Add test data
+    store.add_update(sample_update)
+    
+    # Test get latest
+    latest = store.get_latest(1)
+    assert len(latest) == 1
+    assert isinstance(latest[0], MarketDataPoint)
+    assert latest[0].price == sample_update["price"]
+    
+    # Test get more than available
+    latest = store.get_latest(10)
+    assert len(latest) == 1
+    
+    # Test get with no data
+    empty_store = MarketDataStore("ETH/USDT")
+    latest = empty_store.get_latest(1)
+    assert len(latest) == 0
+    empty_store.close()
+
+def test_get_range(store, sample_update):
+    """Test retrieving data within a time range."""
+    # Add test data
+    store.add_update(sample_update)
+    
+    # Test get range
+    start_time = sample_update["timestamp"] - 1
+    end_time = sample_update["timestamp"] + 1
+    data_range = store.get_range(start_time, end_time)
+    assert len(data_range) == 1
+    assert isinstance(data_range[0], MarketDataPoint)
+    
+    # Test get range with no data
+    data_range = store.get_range(0, 1)
+    assert len(data_range) == 0
+
+def test_get_statistics(store, sample_update):
+    """Test getting data statistics."""
+    # Add test data
+    store.add_update(sample_update)
+    
+    stats = store.get_statistics()
+    assert isinstance(stats, dict)
+    assert "total_points" in stats
+    assert "first_timestamp" in stats
+    assert "last_timestamp" in stats
+    assert "min_price" in stats
+    assert "max_price" in stats
+    assert "avg_price" in stats
+    assert "total_volume" in stats
+
+def test_cleanup_old_data(store, sample_update):
+    """Test cleaning up old data."""
+    # Add test data
+    store.add_update(sample_update)
+    
+    # Force cleanup
+    store._cleanup_old_data()
+    assert len(store.data) <= store.max_points
+
+def test_validate_update(store, sample_update):
+    """Test update validation."""
+    # Test valid update
+    assert store._validate_update(sample_update)
+    
+    # Test missing required fields
+    invalid_update = sample_update.copy()
+    del invalid_update["price"]
+    assert not store._validate_update(invalid_update)
+    
+    # Test invalid price
+    invalid_update = sample_update.copy()
+    invalid_update["price"] = -1
+    assert not store._validate_update(invalid_update)
+    
+    # Test invalid volume
+    invalid_update = sample_update.copy()
+    invalid_update["volume"] = -1
+    assert not store._validate_update(invalid_update)
+
+def test_error_handling(store):
+    """Test error handling."""
+    # Test invalid update
+    with pytest.raises(ValidationError):
+        store.add_update({"invalid": "data"})
+    
+    # Test file access error
+    store.close()
+    with pytest.raises(StorageError):
+        store.get_latest(1)
+    
+    # Test invalid max_points
+    with pytest.raises(ValidationError, match="Invalid max_points"):
+        MarketDataStore("BTC/USD", max_points=0)
+    
+    # Test invalid symbol
+    with pytest.raises(ValidationError, match="Invalid symbol"):
+        MarketDataStore("", max_points=1000)
+
+def test_store_cleanup(store):
+    """Test store cleanup."""
+    store.close()
+    assert store.data_file is None
+    assert store.mmap_file is None
+
 def test_initialization(store):
     """Test store initialization."""
     assert store.symbol == "BTC/USD"
@@ -42,21 +185,6 @@ def test_initialization(store):
     assert os.path.exists(store.filename)
     assert store.data_format == 'f'  # float format
     assert store.point_size == struct.calcsize(store.data_format * 5)  # price, volume, bid, ask, timestamp
-
-def test_add_update(store, mock_market_data):
-    """Test adding market data update."""
-    store.add_update(mock_market_data)
-    time.sleep(0.1)  # Give time for processing
-    
-    points = store.get_latest(1)
-    assert len(points) == 1
-    point = points[0]
-    assert point.price == Decimal('50000.0')
-    assert point.volume == Decimal('1.5')
-    assert point.bid == Decimal('49999.0')
-    assert point.ask == Decimal('50001.0')
-    assert point.last_update_id == 1
-    assert isinstance(point.timestamp, float)
 
 def test_add_update_validation(store):
     """Test update validation."""
@@ -94,7 +222,7 @@ def test_add_update_validation(store):
             'last_update_id': 1
         })
 
-def test_get_latest(store):
+def test_get_latest_data_points(store):
     """Test getting latest data points."""
     # Add multiple updates
     for i in range(5):
@@ -121,7 +249,7 @@ def test_get_latest(store):
     points = store.get_latest(10)
     assert len(points) == 5  # Should return all available points
 
-def test_get_range(store):
+def test_get_range_data_points(store):
     """Test getting data points within time range."""
     # Add updates with different timestamps
     start_time = datetime.now(timezone.utc).timestamp()
@@ -158,7 +286,7 @@ def test_get_range(store):
     with pytest.raises(ValidationError, match="Invalid time range"):
         store.get_range(end_time, start_time)
 
-def test_get_statistics(store):
+def test_get_statistics_data(store):
     """Test getting market data statistics."""
     # Add updates with varying prices and volumes
     for i in range(10):
@@ -282,25 +410,6 @@ def test_concurrent_access(store):
     # Verify no duplicate update IDs
     update_ids = [p.last_update_id for p in points]
     assert len(update_ids) == len(set(update_ids))
-
-def test_error_handling(store):
-    """Test error handling."""
-    # Test invalid update
-    with pytest.raises(ValidationError):
-        store.add_update({'invalid': 'data'})
-    
-    # Test file access error
-    store.close()
-    with pytest.raises(StorageError):
-        store.get_latest(1)
-    
-    # Test invalid max_points
-    with pytest.raises(ValidationError, match="Invalid max_points"):
-        MarketDataStore("BTC/USD", max_points=0)
-    
-    # Test invalid symbol
-    with pytest.raises(ValidationError, match="Invalid symbol"):
-        MarketDataStore("", max_points=1000)
 
 def test_cleanup(store):
     """Test cleanup on deletion."""

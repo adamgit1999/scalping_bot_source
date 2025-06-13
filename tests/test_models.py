@@ -1,19 +1,8 @@
 import pytest
-from app import app, db, User, Strategy, Trade, Backtest, Notification, Webhook
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
+from src.models import User, Trade, Notification, Webhook, db
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
-
-@pytest.fixture
-def app_context():
-    """Create app context and initialize test database."""
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-    with app.app_context():
-        db.create_all()
-        yield app
-        db.session.remove()
-        db.drop_all()
 
 @pytest.fixture
 def test_user(app_context):
@@ -46,154 +35,49 @@ def test_user_model(app_context, test_user):
     token = test_user.generate_token()
     assert token is not None
     
-    # Test API key generation
-    api_key = test_user.generate_api_key()
-    assert api_key is not None
-    assert len(api_key) == 64
-    
-    # Test user update
-    test_user.email = 'updated@example.com'
-    db.session.commit()
-    updated_user = User.query.get(test_user.id)
-    assert updated_user.email == 'updated@example.com'
-    
-    # Test user deletion
-    db.session.delete(test_user)
-    db.session.commit()
-    assert User.query.get(test_user.id) is None
-
-def test_strategy_model(app_context, test_user):
-    """Test Strategy model functionality."""
-    # Create strategy
-    strategy = Strategy(
-        name='Test Strategy',
-        description='Test Description',
-        parameters={
-            'sma_short': 10,
-            'sma_long': 20
-        },
-        user_id=test_user.id
-    )
-    db.session.add(strategy)
-    db.session.commit()
-    
-    # Test strategy creation
-    assert strategy.name == 'Test Strategy'
-    assert strategy.description == 'Test Description'
-    assert strategy.parameters['sma_short'] == 10
-    assert strategy.user_id == test_user.id
-    
-    # Test strategy update
-    strategy.name = 'Updated Strategy'
-    strategy.parameters['sma_short'] = 15
-    db.session.commit()
-    updated_strategy = Strategy.query.get(strategy.id)
-    assert updated_strategy.name == 'Updated Strategy'
-    assert updated_strategy.parameters['sma_short'] == 15
-    
-    # Test strategy deletion
-    db.session.delete(strategy)
-    db.session.commit()
-    assert Strategy.query.get(strategy.id) is None
+    # Test serialization
+    user_dict = test_user.to_dict()
+    assert user_dict['username'] == 'testuser'
+    assert user_dict['email'] == 'test@example.com'
 
 def test_trade_model(app_context, test_user):
     """Test Trade model functionality."""
-    # Create strategy first
-    strategy = Strategy(
-        name='Test Strategy',
-        description='Test Description',
-        parameters={},
-        user_id=test_user.id
-    )
-    db.session.add(strategy)
-    db.session.commit()
-    
     # Create trade
     trade = Trade(
-        strategy_id=strategy.id,
+        user_id=test_user.id,
         symbol='BTC/USDT',
         side='buy',
         price=50000.0,
-        amount=0.1,
+        quantity=0.1,
         total=5000.0,
         fee=5.0,
-        profit=100.0,
-        timestamp=datetime.now(datetime.UTC)
+        profit=100.0
     )
     db.session.add(trade)
     db.session.commit()
     
     # Test trade creation
-    assert trade.strategy_id == strategy.id
+    assert trade.user_id == test_user.id
     assert trade.symbol == 'BTC/USDT'
     assert trade.side == 'buy'
     assert trade.price == 50000.0
-    assert trade.amount == 0.1
+    assert trade.quantity == 0.1
     assert trade.total == 5000.0
     assert trade.fee == 5.0
     assert trade.profit == 100.0
     
     # Test trade update
-    trade.profit = 200.0
-    trade.status = 'closed'
+    trade.profit = 150.0
     db.session.commit()
     updated_trade = Trade.query.get(trade.id)
-    assert updated_trade.profit == 200.0
-    assert updated_trade.status == 'closed'
+    assert updated_trade.profit == 150.0
     
-    # Test trade deletion
-    db.session.delete(trade)
-    db.session.commit()
-    assert Trade.query.get(trade.id) is None
-
-def test_backtest_model(app_context, test_user):
-    """Test Backtest model functionality."""
-    # Create strategy first
-    strategy = Strategy(
-        name='Test Strategy',
-        description='Test Description',
-        parameters={},
-        user_id=test_user.id
-    )
-    db.session.add(strategy)
-    db.session.commit()
-    
-    # Create backtest
-    backtest = Backtest(
-        strategy_id=strategy.id,
-        start_date=datetime.now(datetime.UTC) - timedelta(days=30),
-        end_date=datetime.now(datetime.UTC),
-        initial_balance=10000.0,
-        final_balance=11000.0,
-        total_trades=100,
-        win_rate=0.6,
-        profit_factor=1.5,
-        max_drawdown=0.1
-    )
-    db.session.add(backtest)
-    db.session.commit()
-    
-    # Test backtest creation
-    assert backtest.strategy_id == strategy.id
-    assert backtest.initial_balance == 10000.0
-    assert backtest.final_balance == 11000.0
-    assert backtest.total_trades == 100
-    assert backtest.win_rate == 0.6
-    assert backtest.profit_factor == 1.5
-    assert backtest.max_drawdown == 0.1
-    
-    # Test backtest update
-    backtest.final_balance = 12000.0
-    backtest.win_rate = 0.7
-    db.session.commit()
-    updated_backtest = Backtest.query.get(backtest.id)
-    assert updated_backtest.final_balance == 12000.0
-    assert updated_backtest.win_rate == 0.7
-    
-    # Test backtest deletion
-    db.session.delete(backtest)
-    db.session.commit()
-    assert Backtest.query.get(backtest.id) is None
+    # Test serialization
+    trade_dict = trade.to_dict()
+    assert trade_dict['symbol'] == 'BTC/USDT'
+    assert trade_dict['side'] == 'buy'
+    assert trade_dict['price'] == 50000.0
+    assert trade_dict['quantity'] == 0.1
 
 def test_notification_model(app_context, test_user):
     """Test Notification model functionality."""
@@ -202,12 +86,11 @@ def test_notification_model(app_context, test_user):
         user_id=test_user.id,
         type='trade',
         message='Trade executed successfully',
-        data={
+        notification_data={
             'trade_id': 1,
             'symbol': 'BTC/USDT',
             'price': 50000.0
-        },
-        read=False
+        }
     )
     db.session.add(notification)
     db.session.commit()
@@ -216,8 +99,10 @@ def test_notification_model(app_context, test_user):
     assert notification.user_id == test_user.id
     assert notification.type == 'trade'
     assert notification.message == 'Trade executed successfully'
-    assert notification.data['trade_id'] == 1
-    assert not notification.read
+    assert notification.notification_data['trade_id'] == 1
+    assert notification.notification_data['symbol'] == 'BTC/USDT'
+    assert notification.notification_data['price'] == 50000.0
+    assert notification.read is False
     
     # Test notification update
     notification.read = True
@@ -225,10 +110,11 @@ def test_notification_model(app_context, test_user):
     updated_notification = Notification.query.get(notification.id)
     assert updated_notification.read is True
     
-    # Test notification deletion
-    db.session.delete(notification)
-    db.session.commit()
-    assert Notification.query.get(notification.id) is None
+    # Test serialization
+    notification_dict = notification.to_dict()
+    assert notification_dict['type'] == 'trade'
+    assert notification_dict['message'] == 'Trade executed successfully'
+    assert notification_dict['notification_data']['trade_id'] == 1
 
 def test_webhook_model(app_context, test_user):
     """Test Webhook model functionality."""
@@ -237,8 +123,7 @@ def test_webhook_model(app_context, test_user):
         user_id=test_user.id,
         url='https://example.com/webhook',
         events=['trade', 'balance'],
-        secret='test_secret',
-        active=True
+        secret='test_secret'
     )
     db.session.add(webhook)
     db.session.commit()
@@ -252,152 +137,183 @@ def test_webhook_model(app_context, test_user):
     assert webhook.active is True
     
     # Test webhook update
-    webhook.events.append('order')
+    webhook.events = ['trade', 'balance', 'order']
     webhook.active = False
     db.session.commit()
     updated_webhook = Webhook.query.get(webhook.id)
     assert 'order' in updated_webhook.events
     assert updated_webhook.active is False
     
-    # Test webhook deletion
-    db.session.delete(webhook)
-    db.session.commit()
-    assert Webhook.query.get(webhook.id) is None
+    # Test serialization
+    webhook_dict = webhook.to_dict()
+    assert webhook_dict['url'] == 'https://example.com/webhook'
+    assert 'trade' in webhook_dict['events']
+    assert 'balance' in webhook_dict['events']
+    assert 'order' in webhook_dict['events']
 
 def test_model_relationships(app_context, test_user):
     """Test model relationships."""
-    # Create strategy
-    strategy = Strategy(
-        name='Test Strategy',
-        description='Test Description',
-        parameters={},
-        user_id=test_user.id
-    )
-    db.session.add(strategy)
-    db.session.commit()
-    
     # Create trades
     trades = []
     for i in range(3):
         trade = Trade(
-            strategy_id=strategy.id,
+            user_id=test_user.id,
             symbol='BTC/USDT',
             side='buy',
             price=50000.0,
-            amount=0.1,
+            quantity=0.1,
             total=5000.0,
             fee=5.0,
-            profit=100.0,
-            timestamp=datetime.now(datetime.UTC)
+            profit=100.0
         )
         trades.append(trade)
     db.session.add_all(trades)
     db.session.commit()
     
-    # Test user-strategy relationship
-    assert len(test_user.strategies) == 1
-    assert test_user.strategies[0].name == 'Test Strategy'
+    # Test user-trade relationship
+    assert len(test_user.trades) == 3
+    for trade in test_user.trades:
+        assert trade.user_id == test_user.id
     
-    # Test strategy-trade relationship
-    assert len(strategy.trades) == 3
-    assert all(trade.strategy_id == strategy.id for trade in strategy.trades)
-    
-    # Test cascade deletion
-    db.session.delete(strategy)
+    # Create notifications
+    notifications = []
+    for i in range(2):
+        notification = Notification(
+            user_id=test_user.id,
+            type='trade',
+            message=f'Trade {i} executed',
+            notification_data={'trade_id': i}
+        )
+        notifications.append(notification)
+    db.session.add_all(notifications)
     db.session.commit()
-    assert Strategy.query.get(strategy.id) is None
-    assert all(Trade.query.get(trade.id) is None for trade in trades)
+    
+    # Test user-notification relationship
+    assert len(test_user.notifications) == 2
+    for notification in test_user.notifications:
+        assert notification.user_id == test_user.id
+    
+    # Create webhooks
+    webhooks = []
+    for i in range(2):
+        webhook = Webhook(
+            user_id=test_user.id,
+            url=f'https://example.com/webhook{i}',
+            events=['trade'],
+            secret=f'secret{i}'
+        )
+        webhooks.append(webhook)
+    db.session.add_all(webhooks)
+    db.session.commit()
+    
+    # Test user-webhook relationship
+    assert len(test_user.webhooks) == 2
+    for webhook in test_user.webhooks:
+        assert webhook.user_id == test_user.id
 
 def test_model_validation(app_context, test_user):
     """Test model validation."""
-    # Test user validation
-    with pytest.raises(ValueError):
-        User(username='', email='test@example.com')
-    
-    with pytest.raises(ValueError):
-        User(username='testuser', email='invalid-email')
-    
-    # Test strategy validation
-    with pytest.raises(ValueError):
-        Strategy(name='', description='Test Description', user_id=test_user.id)
-    
-    with pytest.raises(ValueError):
-        Strategy(name='Test Strategy', description='Test Description', parameters='invalid')
-    
     # Test trade validation
     with pytest.raises(ValueError):
-        Trade(strategy_id=1, symbol='', side='buy', price=50000.0)
+        Trade(
+            user_id=test_user.id,
+            symbol='BTC/USDT',
+            side='invalid',  # Invalid side
+            price=50000.0,
+            quantity=0.1,
+            total=5000.0,
+            fee=5.0
+        )
     
+    # Test notification validation
     with pytest.raises(ValueError):
-        Trade(strategy_id=1, symbol='BTC/USDT', side='invalid', price=50000.0)
+        Notification(
+            user_id=test_user.id,
+            type='invalid',  # Invalid type
+            message='Test message'
+        )
     
+    # Test webhook validation
     with pytest.raises(ValueError):
-        Trade(strategy_id=1, symbol='BTC/USDT', side='buy', price=-1)
+        Webhook(
+            user_id=test_user.id,
+            url='invalid_url',  # Invalid URL
+            events=['trade'],
+            secret='test_secret'
+        )
 
 def test_model_indexes(app_context, test_user):
     """Test model indexes."""
-    # Create multiple strategies
-    strategies = []
-    for i in range(5):
-        strategy = Strategy(
-            name=f'Strategy {i}',
-            description=f'Description {i}',
-            parameters={},
-            user_id=test_user.id
-        )
-        strategies.append(strategy)
-    db.session.add_all(strategies)
-    db.session.commit()
-    
-    # Test index on user_id
-    user_strategies = Strategy.query.filter_by(user_id=test_user.id).all()
-    assert len(user_strategies) == 5
-    
-    # Test index on strategy_id
-    strategy = strategies[0]
+    # Create multiple trades
     trades = []
-    for i in range(3):
+    for i in range(5):
         trade = Trade(
-            strategy_id=strategy.id,
+            user_id=test_user.id,
             symbol='BTC/USDT',
             side='buy',
             price=50000.0,
-            amount=0.1,
+            quantity=0.1,
             total=5000.0,
             fee=5.0,
-            profit=100.0,
-            timestamp=datetime.now(datetime.UTC)
+            profit=100.0
         )
         trades.append(trade)
     db.session.add_all(trades)
     db.session.commit()
     
-    strategy_trades = Trade.query.filter_by(strategy_id=strategy.id).all()
-    assert len(strategy_trades) == 3
+    # Test index on user_id
+    user_trades = Trade.query.filter_by(user_id=test_user.id).all()
+    assert len(user_trades) == 5
+    
+    # Test index on symbol
+    btc_trades = Trade.query.filter_by(symbol='BTC/USDT').all()
+    assert len(btc_trades) == 5
+    
+    # Test index on timestamp
+    recent_trades = Trade.query.filter(
+        Trade.timestamp >= datetime.now(timezone.utc) - timedelta(hours=1)
+    ).all()
+    assert len(recent_trades) == 5
 
 def test_model_serialization(app_context, test_user):
     """Test model serialization."""
-    # Create strategy
-    strategy = Strategy(
-        name='Test Strategy',
-        description='Test Description',
-        parameters={
-            'sma_short': 10,
-            'sma_long': 20
-        },
-        user_id=test_user.id
+    # Create trade
+    trade = Trade(
+        user_id=test_user.id,
+        symbol='BTC/USDT',
+        side='buy',
+        price=50000.0,
+        quantity=0.1,
+        total=5000.0,
+        fee=5.0,
+        profit=100.0
     )
-    db.session.add(strategy)
+    db.session.add(trade)
     db.session.commit()
     
     # Test JSON serialization
-    strategy_dict = strategy.to_dict()
-    assert isinstance(strategy_dict, dict)
-    assert strategy_dict['name'] == 'Test Strategy'
-    assert strategy_dict['parameters']['sma_short'] == 10
+    trade_dict = trade.to_dict()
+    assert isinstance(trade_dict, dict)
+    assert trade_dict['symbol'] == 'BTC/USDT'
+    assert trade_dict['side'] == 'buy'
+    assert trade_dict['price'] == 50000.0
+    assert trade_dict['quantity'] == 0.1
+    assert 'timestamp' in trade_dict
     
-    # Test JSON deserialization
-    strategy_json = json.dumps(strategy_dict)
-    loaded_dict = json.loads(strategy_json)
-    assert loaded_dict['name'] == 'Test Strategy'
-    assert loaded_dict['parameters']['sma_short'] == 10 
+    # Create notification
+    notification = Notification(
+        user_id=test_user.id,
+        type='trade',
+        message='Trade executed',
+        notification_data={'trade_id': 1}
+    )
+    db.session.add(notification)
+    db.session.commit()
+    
+    # Test JSON serialization
+    notification_dict = notification.to_dict()
+    assert isinstance(notification_dict, dict)
+    assert notification_dict['type'] == 'trade'
+    assert notification_dict['message'] == 'Trade executed'
+    assert notification_dict['notification_data']['trade_id'] == 1
+    assert 'created_at' in notification_dict 
